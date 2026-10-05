@@ -31,8 +31,9 @@ jobs:
         run: |
           mkdir -p dist/ongaku-renshuu
           git archive HEAD | tar -x -C dist/ongaku-renshuu
-          rm -rf dist/ongaku-renshuu/.github dist/ongaku-renshuu/.gitignore dist/ongaku-renshuu/CLAUDE.md dist/ongaku-renshuu/tools
-          chmod 755 dist/ongaku-renshuu/*.sh
+          # tools/ holds the server and the video importers, so it ships; only the dev check script is left out
+          rm -rf dist/ongaku-renshuu/.github dist/ongaku-renshuu/.gitignore dist/ongaku-renshuu/CLAUDE.md dist/ongaku-renshuu/tools/check.sh
+          chmod 755 dist/ongaku-renshuu/*.sh dist/ongaku-renshuu/tools/*.py
           cd dist && zip -qr ongaku-renshuu.zip ongaku-renshuu
 
       - name: Publish the release
