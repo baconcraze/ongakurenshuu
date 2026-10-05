@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.7.0">
+<meta name="ongaku-renshuu-version" content="1.8.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -52,8 +52,9 @@ button{cursor:pointer}
 
 /* Header */
 .top{display:flex;align-items:center;gap:18px;padding:10px 18px;background:var(--wood);color:var(--wood-ink);border-bottom:1px solid var(--wood-line)}
-.brand{font-family:var(--num);font-weight:600;font-size:23px;letter-spacing:.02em;color:var(--brass-light);white-space:nowrap;line-height:1.05}
-.brand-ja{display:block;font-family:var(--ui);font-weight:500;font-size:11px;letter-spacing:.2em;color:var(--wood-dim)}
+.brand{white-space:nowrap;line-height:1.05}
+.brand-ja{display:block;font-family:"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",var(--ui);font-weight:600;font-size:24px;letter-spacing:.08em;color:var(--brass-light)}
+.brand-en{display:block;margin-top:2px;font-family:var(--num);font-weight:500;font-size:12px;letter-spacing:.14em;color:var(--wood-dim)}
 .meta{min-width:0;flex:1}
 .title{font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .artist{font-size:13px;color:var(--wood-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -117,7 +118,7 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
   .toggles{margin-left:0}
   .speed input{width:110px}
   .top{padding:8px 12px;gap:10px}
-  .brand{font-size:19px}
+  .brand-ja{font-size:20px}
   .hint{display:none}
 }
 
@@ -199,6 +200,9 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
 .wk.on.lh{background:#9cc8ea;box-shadow:inset 0 -4px 0 #5f9ccd}
 .bk.on.lh{background:linear-gradient(#5f9ccd,#2f6c9c)}
 .wk.press{background:#e4ddd2}.bk.press{background:#4a3c33}
+.wk.hit,.bk.hit{animation:kbhit .16s ease-out}
+@keyframes kbhit{from{filter:brightness(.78);transform:translateY(2px)}to{filter:none;transform:none}}
+@media (prefers-reduced-motion:reduce){.wk.hit,.bk.hit{animation:none}}
 .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);
   padding:8px 14px;border-radius:6px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
 .toast.show{opacity:1}
@@ -207,7 +211,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
 </head>
 <body>
 <header class="top">
-  <div class="brand" title="音楽練習, music practice">Ongaku Renshuu<span class="brand-ja" lang="ja">音楽練習</span></div>
+  <div class="brand" title="Ongaku Renshuu, music practice"><span class="brand-ja" lang="ja">音楽練習</span><span class="brand-en">Ongaku Renshuu</span></div>
   <div class="meta"><div id="songTitle" class="title"></div><div class="subline"><span id="songArtist" class="artist"></span><select id="trackSel" class="tracksel" aria-label="Track" hidden></select></div></div>
   <div class="top-actions">
     <button class="tbtn" id="btnLib">Library</button>
@@ -228,7 +232,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
       <label for="ytBar">Bar</label><input id="ytBar" type="number" min="1" value="1"><button class="vbtn" id="ytMark">starts now</button>
     </div>
     <div class="vrow"><label class="chk"><input type="checkbox" id="ytNotes"> Play the tab sound too</label><span id="ytInfo" class="vinfo" role="status"></span></div>
-    <p class="vhelp">To sync: play the video and press "Bar 1 starts now" on the first downbeat of bar 1, or type the time. Then set a later bar number, pause the video exactly on that bar's downbeat, and press the button again to fit the tempo. Nudge with the buttons while it plays. The play button, bar clicks, and loops all control the video. Press Save to library to keep the sync.</p>
+    <p class="vhelp">To sync: play the video and press "Bar 1 starts now" on the first downbeat of bar 1, or type the time. Then set a later bar number, pause the video exactly on that bar's downbeat, and press the button again to fit the tempo. Nudge with the buttons while it plays. The play button, bar clicks, and loops all control the video. Each song in your library (and each demo) remembers its own video and sync. To remove a video, clear the link and press Load video.</p>
   </div>
 </section>
 <main id="sheet" class="sheet">
@@ -285,14 +289,14 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
       <button class="btn primary" id="btnNew">New tab</button>
       <button class="btn" id="btnNewPiano">New piano song</button>
       <button class="btn" id="btnImg">Import from image</button>
-      <label class="btn" tabindex="0">Import file<input type="file" id="fileIn" accept=".gp,.gp3,.gp4,.gp5,.gpx,.txt,.tab,text/plain" class="sr"></label>
+      <label class="btn" tabindex="0">Import file<input type="file" id="fileIn" accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7,.gp8,.musicxml,.mxl,.xml,.mid,.midi,.abc,.txt,.tab,text/plain" class="sr"></label>
     </div>
     <p class="note">Import reads Guitar Pro files (.gp, .gpx, .gp5, .gp4, .gp3) and plain-text ASCII tab. Songs you save are kept in this browser only. Ongaku Renshuu is free software under the MIT license: copy it, change it, share it.</p>
   </section>
   <section id="paneImg" class="pane" role="tabpanel" hidden>
-    <p class="help">Choose a screenshot, scan, or photo of tab. Ongaku Renshuu finds each staff, cuts it into readable pieces at the bar lines, and has the model you choose below transcribe them. Fret numbers usually come through well; give rhythms a quick check afterwards.</p>
+    <p class="help">Choose a screenshot, scan, or photo of tab or sheet music. Ongaku Renshuu finds each staff, cuts it into readable pieces, and has the model you choose below transcribe them. Fret numbers and pitches usually come through well; give rhythms a quick check afterwards.</p>
     <label class="drop" id="imgDrop" tabindex="0"><input type="file" id="imgIn" accept="image/*" class="sr"><span>Choose an image or drop it here</span></label>
-    <label class="f">Instrument<select id="imgInst"><option value="auto">Detect from the image</option></select></label>
+    <label class="f">Instrument<select id="imgInst"><option value="auto">Tab, detect the strings from the image</option><option value="sheet">Piano or melody, sheet music</option></select></label>
     <label class="f">Read the image with<select id="imgReader"><option value="ollama">Ollama, running on this computer</option><option value="anthropic">Anthropic API, with your key</option></select></label>
     <div id="cfgOllama">
       <label class="f">Ollama address<input id="olUrl" autocomplete="off" spellcheck="false"></label>
@@ -309,7 +313,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <div id="imgPreviewWrap" hidden><canvas id="imgPreview" aria-label="Image with the detected pieces outlined"></canvas><p id="imgInfo" class="help"></p></div>
     <p id="imgStatus" class="help" role="status"></p>
     <div class="row-btns">
-      <button class="btn primary" id="imgGo" disabled>Convert to tab</button>
+      <button class="btn primary" id="imgGo" disabled>Convert</button>
       <button class="btn" id="imgStop" hidden>Stop</button>
     </div>
   </section>
@@ -330,7 +334,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
   <section id="paneEdit" class="pane" role="tabpanel" hidden>
     <label class="f">Title<input id="fTitle" autocomplete="off"></label>
     <label class="f">Artist or source<input id="fArtist" autocomplete="off"></label>
-    <label class="f">Type<select id="fKind"><option value="tab">Guitar or bass tab</option><option value="notes">Piano or melody (note text)</option></select></label>
+    <label class="f">Type<select id="fKind"><option value="tab">Guitar or bass tab</option><option value="abc">Piano or melody (ABC notation)</option><option value="notes">Piano or melody (simple note text)</option></select></label>
     <div class="f2">
       <label class="f">Tempo (BPM)<input id="fBpm" type="number" min="20" max="320" step="0.01"></label>
       <label class="f" id="fCpbWrap">Columns per beat<select id="fCpb"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option><option>12</option><option>16</option><option>24</option></select></label>
@@ -338,6 +342,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <label class="f" id="fTuningWrap">Tuning<select id="fTuning"></select></label>
     <label class="f"><span id="fTabLabel">Tab</span><textarea id="fTab" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off"></textarea></label>
     <p class="help" id="helpNotes" hidden>Write one line per hand or voice, starting with RH: or LH: (any name works; names starting with L go on the bass staff). End each bar with |. Notes look like C4, F#3 or Bb5 (C4 is middle C); chords go in brackets like [C4 E4 G4]; r is a rest. Add a length after a slash: /1 whole, /2 half, /4 quarter, /8, /16, /32, a dot for dotted (/4.) and t for triplets (/8t). A length carries on until you change it. Tie into the next note with ~ (C4~ or [C4~ E4]). Comments start with %.</p>
+    <p class="help" id="helpAbc" hidden>ABC notation, the standard plain-text format for sheet music. Start with the fields X:1, T: (title), M: (time, like 4/4), L: (default note length, like 1/8) and K: (key, like G or Am). For piano, add V:RH clef=treble and V:LH clef=bass, then start each line of music with [V:RH] or [V:LH]. Notes: C D E F G A B is the octave from middle C, c d e ... the octave above; add ' to go up an octave and , to go down. ^ is sharp, _ is flat, = is natural. A number after a note multiplies its length (C2), a slash divides it (C/). Chords: [CEG]. Rest: z. Tie: C-C. Bars: |. Comments start with %.</p>
     <p class="help" id="helpTab">Paste ASCII tab, one line per string with the highest string on top. Every column is one time slot, and "Columns per beat" sets how many columns make a beat. Mark bars with |. Supported marks: frets 0 to 24, x for muted notes, and h, p, /, \, b, ~ as technique hints. The sheet updates as you type.</p>
     <p id="warn" class="warn" role="status"></p>
     <div class="row-btns">
@@ -410,12 +415,89 @@ G|--2-------2---2-|--2-------2---2-|--0-------0---0-|2---------------|
 D|----------------|3---------------|----------------|2---------------|
 A|0---------------|----------------|3---------------|0---------------|
 E|----------------|----------------|----------------|----------------|`},
-{ id:'demo-piano', demo:true, kind:'notes', title:'Ode to Joy (piano)', artist:'Ludwig van Beethoven (public domain)', bpm:96, cpb:4, tuning:null,
-tab:`% Melody in the right hand, simple chords in the left
-RH: E4/4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | E4/4. D4/8 D4/2 |
-RH: E4/4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | D4/4. C4/8 C4/2 |
-LH: [C3 G3]/2 [C3 G3] | [G2 D3]/2 [G2 B2] | [A2 E3]/2 [C3 G3] | [G2 D3]/2 [G2 D3] |
-LH: [C3 G3]/2 [C3 G3] | [G2 D3]/2 [G2 B2] | [A2 E3]/2 [C3 G3] | [G2 D3]/2 [C3 G3] |`},
+{ id:'demo-piano', demo:true, kind:'notes', fmt:'abc', title:'Ode to Joy (piano)', artist:'Ludwig van Beethoven (public domain)', bpm:96, cpb:4, tuning:null,
+tab:`X:1
+T:Ode to Joy
+C:Ludwig van Beethoven
+M:4/4
+L:1/8
+Q:1/4=96
+V:RH clef=treble
+V:LH clef=bass
+K:C
+% Melody in the right hand, simple chords in the left
+[V:RH] E2 E2 F2 G2 | G2 F2 E2 D2 | C2 C2 D2 E2 | E3 D D4 |
+[V:LH] [C,G,]4 [C,G,]4 | [G,,D,]4 [G,,B,,]4 | [A,,E,]4 [C,G,]4 | [G,,D,]4 [G,,D,]4 |
+[V:RH] E2 E2 F2 G2 | G2 F2 E2 D2 | C2 C2 D2 E2 | D3 C C4 |
+[V:LH] [C,G,]4 [C,G,]4 | [G,,D,]4 [G,,B,,]4 | [A,,E,]4 [C,G,]4 | [G,,D,]4 [C,G,]4 |`},
+{ id:'demo-twinkle', demo:true, kind:'notes', fmt:'abc', title:'Twinkle, Twinkle, Little Star (piano)', artist:'Traditional (public domain)', bpm:100, cpb:4, tuning:null,
+tab:`X:1
+T:Twinkle, Twinkle, Little Star
+C:Traditional
+M:4/4
+L:1/8
+Q:1/4=100
+V:RH clef=treble
+V:LH clef=bass
+K:C
+% A first piece for both hands: melody on top, block chords below
+[V:RH] C2 C2 G2 G2 | A2 A2 G4 | F2 F2 E2 E2 | D2 D2 C4 |
+[V:LH] [C,E,G,]4 [C,E,G,]4 | [F,A,]4 [C,E,G,]4 | [F,A,]4 [C,E,G,]4 | [G,,B,,F,]4 [C,E,G,]4 |
+[V:RH] G2 G2 F2 F2 | E2 E2 D4 | G2 G2 F2 F2 | E2 E2 D4 |
+[V:LH] [C,E,G,]4 [F,A,]4 | [C,G,]4 [G,,B,,D,]4 | [C,E,G,]4 [F,A,]4 | [C,G,]4 [G,,B,,D,]4 |
+[V:RH] C2 C2 G2 G2 | A2 A2 G4 | F2 F2 E2 E2 | D2 D2 C4 |
+[V:LH] [C,E,G,]4 [C,E,G,]4 | [F,A,]4 [C,E,G,]4 | [F,A,]4 [C,E,G,]4 | [G,,B,,F,]4 [C,E,G,]4 |`},
+{ id:'demo-minuet', demo:true, kind:'notes', fmt:'abc', title:'Minuet in G (piano)', artist:'Christian Petzold (public domain)', bpm:104, cpb:2, tuning:null,
+tab:`X:1
+T:Minuet in G
+C:Christian Petzold
+M:3/4
+L:1/8
+Q:1/4=104
+V:RH clef=treble
+V:LH clef=bass
+K:G
+% From the Notebook for Anna Magdalena Bach, first half
+[V:RH] d2 G A B c | d2 G2 G2 | e2 c d e f | g2 G2 G2 |
+[V:LH] [G,B,]4 A,2 | B,6 | C6 | B,6 |
+[V:RH] c2 d c B A | B2 c B A G | F2 G A B G | A6 |
+[V:LH] A,6 | G,6 | D2 B,2 G,2 | D2 D, C B, A, |
+[V:RH] d2 G A B c | d2 G2 G2 | e2 c d e f | g2 G2 G2 |
+[V:LH] B,4 A,2 | G,2 B,2 G,2 | C6 | B,2 C B, A, G, |
+[V:RH] c2 d c B A | B2 c B A G | A2 B A G F | G6 |
+[V:LH] A,4 F,2 | G,4 B,2 | C2 D2 D,2 | G,4 G,,2 |`},
+{ id:'demo-elise', demo:true, kind:'notes', fmt:'abc', title:'Für Elise, opening (piano)', artist:'Ludwig van Beethoven (public domain)', bpm:66, cpb:4, tuning:null,
+tab:`X:1
+T:Für Elise, opening
+C:Ludwig van Beethoven
+M:3/8
+L:1/8
+Q:1/4=66
+V:RH clef=treble
+V:LH clef=bass
+K:C
+% The famous opening theme, starting with a two-note pickup
+[V:RH] e/ ^d/ | e/ ^d/ e/ B/ =d/ c/ | A z/ C/ E/ A/ | B z/ E/ ^G/ B/ |
+[V:LH] z | z3 | A,,/ E,/ A,/ z3/ | E,,/ E,/ ^G,/ z3/ |
+[V:RH] c z/ E/ e/ ^d/ | e/ ^d/ e/ B/ =d/ c/ | A z/ C/ E/ A/ | B z/ E/ c/ B/ |
+[V:LH] A,,/ E,/ A,/ z3/ | z3 | A,,/ E,/ A,/ z3/ | E,,/ E,/ ^G,/ z3/ |
+[V:RH] A3 |
+[V:LH] A,,/ E,/ A,/ z3/ |`},
+{ id:'demo-prelude', demo:true, kind:'notes', fmt:'abc', title:'Prelude in C, opening (piano)', artist:'Johann Sebastian Bach (public domain)', bpm:66, cpb:4, tuning:null,
+tab:`X:1
+T:Prelude in C, opening
+C:Johann Sebastian Bach
+M:4/4
+L:1/8
+Q:1/4=66
+V:RH clef=treble
+V:LH clef=bass
+K:C
+% BWV 846, first eight bars. Each half bar is the same broken chord
+[V:RH] z G/ c/ e/ G/ c/ e/ z G/ c/ e/ G/ c/ e/ | z A/ d/ f/ A/ d/ f/ z A/ d/ f/ A/ d/ f/ | z G/ d/ f/ G/ d/ f/ z G/ d/ f/ G/ d/ f/ | z G/ c/ e/ G/ c/ e/ z G/ c/ e/ G/ c/ e/ |
+[V:LH] [CE]4 [CE]4 | [CD]4 [CD]4 | [B,D]4 [B,D]4 | [CE]4 [CE]4 |
+[V:RH] z A/ e/ a/ A/ e/ a/ z A/ e/ a/ A/ e/ a/ | z ^F/ A/ d/ F/ A/ d/ z F/ A/ d/ F/ A/ d/ | z G/ d/ g/ G/ d/ g/ z G/ d/ g/ G/ d/ g/ | z E/ G/ c/ E/ G/ c/ z E/ G/ c/ E/ G/ c/ |
+[V:LH] [CE]4 [CE]4 | [CD]4 [CD]4 | [B,D]4 [B,D]4 | [B,C]4 [B,C]4 |`},
 { id:'demo-bass', demo:true, title:'Walking bass in G', artist:'Ongaku Renshuu demo (CC0)', bpm:110, cpb:2, tuning:'bass4',
 tab:`G|--------|--------|--------|--------|
 D|------0-|------0-|----0-2-|----0---|
@@ -1028,6 +1110,10 @@ const allSongs = () => [...DEMOS, ...library];
 function loadSong(s, keepPos){
   if(playing) pause();
   song = JSON.parse(JSON.stringify(s));
+  if(song.demo){
+    const dv = (store.get('ongaku.videos', {}) || {})[song.id];
+    if(dv && dv.id){ song.video = {id:dv.id, offset:+dv.offset || 0}; if(+dv.bpm) song.bpm = +dv.bpm; }
+  }
   song.bpm = +song.bpm || 100; song.cpb = +song.cpb || 4;
   reparse(keepPos);
   $('#songTitle').textContent = song.title || 'Untitled';
@@ -1042,7 +1128,12 @@ function loadSong(s, keepPos){
   if(typeof videoSongChanged === 'function') videoSongChanged();
 }
 function reparse(keepPos){
-  if(song.kind === 'notes'){ tuning = []; parsed = parseNotes(song.tab); song.cpb = parsed.cpb || 4; }
+  if(song.kind === 'notes'){
+    tuning = [];
+    if(song.fmt === 'abc'){ const r = abcToNoteText(song.tab); parsed = parseNotes(r.text); parsed.warnings.unshift(...r.warnings); }
+    else parsed = parseNotes(song.tab);
+    song.cpb = parsed.cpb || 4;
+  }
   else { song.kind = 'tab'; tuning = tuningNotes(song.tuning); parsed = parseTab(song.tab, tuning.length); parsed.kind = 'tab'; }
   computeSounding(); updatePianoVisibility();
   if(!keepPos){ pos = 0; loopA = loopB = null; loopOn = false; loopPicking = false; }
@@ -1066,17 +1157,17 @@ function fillEditor(){
   $('#fArtist').value = song.artist || '';
   $('#fBpm').value = song.bpm;
   $('#fCpb').value = String(song.cpb);
-  $('#fKind').value = song.kind === 'notes' ? 'notes' : 'tab';
+  $('#fKind').value = song.kind === 'notes' ? (song.fmt === 'abc' ? 'abc' : 'notes') : 'tab';
   if(song.kind !== 'notes') setTuningField(song.tuning);
   updateKindFields();
   $('#fTab').value = song.tab || '';
   $('#btnDel').hidden = !!song.demo || !library.some(s => s.id === song.id);
 }
 function updateKindFields(){
-  const notes = $('#fKind').value === 'notes';
+  const k = $('#fKind').value, notes = k !== 'tab';
   $('#fCpbWrap').hidden = notes; $('#fTuningWrap').hidden = notes;
-  $('#helpNotes').hidden = !notes; $('#helpTab').hidden = notes;
-  $('#fTabLabel').textContent = notes ? 'Notes' : 'Tab';
+  $('#helpNotes').hidden = k !== 'notes'; $('#helpAbc').hidden = k !== 'abc'; $('#helpTab').hidden = notes;
+  $('#fTabLabel').textContent = k === 'abc' ? 'ABC notation' : notes ? 'Notes' : 'Tab';
 }
 let customTuning = null;
 function setTuningField(t){
@@ -1099,6 +1190,7 @@ function syncTrack(){
   if(song && Array.isArray(song.tracks) && song.tracks[song.track]){
     const tr = song.tracks[song.track];
     tr.tab = song.tab; tr.tuning = song.tuning; tr.kind = song.kind; tr.cpb = song.cpb;
+    if(song.fmt) tr.fmt = song.fmt; else delete tr.fmt;
   }
 }
 function fillTrackSelect(){
@@ -1120,6 +1212,7 @@ function switchTrack(i){
   song.track = i;
   const tr = song.tracks[i];
   song.tab = tr.tab; song.tuning = tr.tuning; song.kind = tr.kind || 'tab'; if(tr.cpb) song.cpb = tr.cpb;
+  if(tr.fmt) song.fmt = tr.fmt; else delete song.fmt;
   reparse(true);
   const ms1 = parsed.measures[Math.min(m0, parsed.measures.length - 1)];
   if(ms1){ pos = ms1.start + Math.min(ms1.len - 1, Math.round(frac0 * ms1.len)); setCursor(pos, 0, true); }
@@ -1135,11 +1228,12 @@ function onEdit(){
     song.title = $('#fTitle').value.trim();
     song.artist = $('#fArtist').value.trim();
     song.bpm = Math.max(20, Math.min(320, +$('#fBpm').value || 100));
-    const kind = $('#fKind').value;
+    const sel = $('#fKind').value, kind = sel === 'tab' ? 'tab' : 'notes', fmt = sel === 'abc' ? 'abc' : undefined;
     if(kind === 'tab') song.cpb = +$('#fCpb').value || 4;
     const newTuning = kind === 'tab' ? readTuningField() : song.tuning;
-    const tabChanged = song.tab !== $('#fTab').value || !sameTuning(song.tuning, newTuning) || kind !== song.kind;
+    const tabChanged = song.tab !== $('#fTab').value || !sameTuning(song.tuning, newTuning) || kind !== song.kind || fmt !== song.fmt;
     song.kind = kind;
+    if(fmt) song.fmt = fmt; else delete song.fmt;
     song.tuning = newTuning;
     song.tab = $('#fTab').value;
     syncTrack();
@@ -1154,11 +1248,14 @@ function saveSong(){
   const data = {
     id: song.id, title: $('#fTitle').value.trim() || 'Untitled', artist: $('#fArtist').value.trim(),
     bpm: Math.max(20, Math.min(320, +$('#fBpm').value || 100)), cpb: +$('#fCpb').value || 4,
-    tuning: $('#fKind').value === 'notes' ? null : readTuningField(), tab: $('#fTab').value
+    tuning: $('#fKind').value !== 'tab' ? null : readTuningField(), tab: $('#fTab').value
   };
-  if($('#fKind').value === 'notes'){ data.kind = 'notes'; data.cpb = song.cpb; }
+  if($('#fKind').value !== 'tab'){ data.kind = 'notes'; data.cpb = song.cpb; }
+  if($('#fKind').value === 'abc') data.fmt = 'abc';
   if(Array.isArray(song.tracks)){
-    song.tab = data.tab; song.tuning = data.tuning; syncTrack();
+    song.tab = data.tab; song.tuning = data.tuning; song.kind = data.kind || 'tab';
+    if(data.fmt) song.fmt = data.fmt; else delete song.fmt;
+    syncTrack();
     data.tracks = song.tracks; data.track = song.track || 0;
   }
   if(song.video && song.video.id) data.video = {id:song.video.id, offset:+song.video.offset || 0};
@@ -1179,8 +1276,8 @@ function deleteSong(){
   loadSong(DEMOS[0]); toast('Song deleted');
 }
 function newPianoSong(){
-  loadSong({id:null, unsaved:true, kind:'notes', title:'Untitled', artist:'', bpm:90, cpb:4, tuning:null,
-    tab:'RH: C4/4 D4 E4 F4 | G4/2 G4 |\nLH: C3/2 G2 | C3/1 |'});
+  loadSong({id:null, unsaved:true, kind:'notes', fmt:'abc', title:'Untitled', artist:'', bpm:90, cpb:4, tuning:null,
+    tab:'X:1\nT:Untitled\nM:4/4\nL:1/4\nQ:1/4=90\nV:RH clef=treble\nV:LH clef=bass\nK:C\n[V:RH] C D E F | G2 G2 |\n[V:LH] C,2 G,,2 | C,4 |'});
   openDrawer('edit');
 }
 function newSong(){
@@ -1191,8 +1288,8 @@ function newSong(){
 }
 async function copyTab(){
   const text = $('#fTab').value;
-  try{ await navigator.clipboard.writeText(text); toast('Tab copied'); }
-  catch(e){ const ta = $('#fTab'); ta.focus(); ta.select(); try{ document.execCommand('copy'); toast('Tab copied'); }catch(e2){ toast('Select the tab text and copy it manually'); } }
+  try{ await navigator.clipboard.writeText(text); toast('Copied'); }
+  catch(e){ const ta = $('#fTab'); ta.focus(); ta.select(); try{ document.execCommand('copy'); toast('Copied'); }catch(e2){ toast('Select the text and copy it manually'); } }
 }
 
 /* ---------- UI wiring ---------- */
@@ -1264,14 +1361,26 @@ $('#btnDel').addEventListener('click', deleteSong);
 $('#btnCopy').addEventListener('click', copyTab);
 $('#btnNew').addEventListener('click', newSong);
 $('#btnNewPiano').addEventListener('click', newPianoSong);
-$('#fKind').addEventListener('change', () => { updateKindFields(); if($('#fKind').value === 'tab' && song.kind === 'notes') setTuningField('standard'); onEdit(); });
+$('#fKind').addEventListener('change', () => {
+  const k = $('#fKind').value, ta = $('#fTab'), was = song.kind !== 'notes' ? 'tab' : song.fmt === 'abc' ? 'abc' : 'notes';
+  if(k === 'abc' && was === 'notes' && ta.value.trim()) ta.value = noteTextToAbc(ta.value, {title:$('#fTitle').value.trim(), artist:$('#fArtist').value.trim(), bpm:+$('#fBpm').value});
+  else if(k === 'notes' && was === 'abc' && ta.value.trim()) ta.value = abcToNoteText(ta.value).text;
+  updateKindFields(); if(k === 'tab' && song.kind === 'notes') setTuningField('standard'); onEdit();
+});
 $('#fileIn').addEventListener('change', e => {
   const f = e.target.files && e.target.files[0]; if(!f) return;
-  if(GP_EXT.test(f.name)){ e.target.value = ''; importGuitarPro(f); return; }
+  if(GP_EXT.test(f.name) || MIDI_EXT.test(f.name)){ e.target.value = ''; importGuitarPro(f); return; }
   const r = new FileReader();
   r.onload = () => {
     const text = String(r.result || '');
     const lines = text.split(/\r?\n/).length;
+    if(/\.abc$/i.test(f.name) || looksLikeAbc(text)){
+      const meta = abcToNoteText(text).meta;
+      loadSong({id:null, unsaved:true, kind:'notes', fmt:'abc', title:meta.title || f.name.replace(/\.[^.]+$/, ''), artist:meta.composer, bpm:meta.bpm || 90, cpb:4, tuning:null, tab:text});
+      openDrawer('edit');
+      toast(parsed.steps.length ? `Imported ${parsed.measures.length} bars of ABC. Save to keep it.` : 'No music found in this ABC file');
+      return;
+    }
     const guess = /^\s*[GDAE]\|/m.test(text) && !/^\s*[eB]\|/m.test(text) ? 'bass4' : 'standard';
     loadSong({id:null, unsaved:true, title:f.name.replace(/\.[^.]+$/, ''), artist:'', bpm:100, cpb:4, tuning:guess, tab:text});
     openDrawer('edit');
@@ -1313,8 +1422,10 @@ new ResizeObserver(() => {
 
 
 
-/* ---------- Guitar Pro import (files are parsed with alphaTab, MPL-2.0) ---------- */
-const GP_EXT = /\.(gp|gp3|gp4|gp5|gpx)$/i;
+/* ---------- Guitar Pro import (files are parsed with alphaTab, MPL-2.0) ----------
+   alphaTab also reads MusicXML (.musicxml, .xml, and compressed .mxl), the standard exchange format for notation. */
+const GP_EXT = /\.(gp|gp3|gp4|gp5|gpx|gp7|gp8|musicxml|mxl|xml)$/i;
+const MIDI_EXT = /\.(mid|midi|smf)$/i;
 let alphaTabLoading = null;
 function loadAlphaTab(){
   if(window.alphaTab && window.alphaTab.importer) return Promise.resolve(window.alphaTab);
@@ -1382,6 +1493,12 @@ function scoreToSong(score, fileName){
     }
     });
   });
+  return buildImported({barTicks, staves, pitched, title:(score.title || '').trim(), artist:(score.artist || '').trim(), tempo:score.tempo}, fileName);
+}
+// Shared by every file importer. Times are in ticks, 960 per quarter note. staves become tab tracks
+// ({name, tuning highest first, events:[{bar, tick, s, fret, dead, tech}]}); pitched parts become ABC tracks.
+function buildImported(data, fileName){
+  const {barTicks, staves, pitched} = data, mbs = barTicks;
   if(!staves.length && !pitched.length) throw new Error('This file has no guitar, bass, piano or other pitched tracks with notes.');
 
   // Use the coarsest grid that places every note exactly and leaves room for two-digit frets.
@@ -1431,35 +1548,167 @@ function scoreToSong(score, fileName){
     return {order:sv.order, name:sv.name, kind:'tab', cpb, tuning:matchPreset(sv.tuning), tab};
   });
   const barUnits = barTicks.map(t => Math.round(t / 10));
+  const title = data.title || fileName.replace(/\.[^.]+$/, ''), bpm = Math.max(20, Math.min(320, Math.round(data.tempo) || 120));
   for(const pt of pitched){
-    const tab = voicesToNoteText(pt.voices, barUnits);
-    tracks.push({order:pt.order, name:pt.name, kind:'notes', cpb:parseNotes(tab).cpb, tuning:null, tab});
+    const text = voicesToNoteText(pt.voices, barUnits);
+    tracks.push({order:pt.order, name:pt.name, kind:'notes', fmt:'abc', cpb:parseNotes(text).cpb, tuning:null, tab:noteTextToAbc(text, {title, artist:data.artist, bpm})});
   }
   tracks.sort((a, b) => a.order - b.order);
   tracks.forEach(t => delete t.order);
-  const title = (score.title || '').trim() || fileName.replace(/\.[^.]+$/, '');
   const first = tracks[0];
   return {
-    song:{id:null, unsaved:true, title, artist:(score.artist || '').trim(), bpm:Math.round(score.tempo) || 120, cpb:first.cpb, kind:first.kind,
-      tuning:first.tuning, tab:first.tab, tracks, track:0},
+    song:Object.assign({id:null, unsaved:true, title, artist:data.artist || '', bpm, cpb:first.cpb, kind:first.kind,
+      tuning:first.tuning, tab:first.tab, tracks, track:0}, first.fmt ? {fmt:first.fmt} : {}),
     exact, bars:mbs.length
   };
 }
+/* MIDI (Standard MIDI File, format 0 or 1). Guitar and bass programs become tab with frets picked for you;
+   everything else becomes piano or melody parts. Drums (channel 10) are skipped. */
+function readMidi(bytes){
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const str = (o, n) => String.fromCharCode(...bytes.subarray(o, o + n));
+  if(bytes.length < 14 || str(0, 4) !== 'MThd') throw new Error('This is not a MIDI file.');
+  const ntrk = dv.getUint16(10), div = dv.getUint16(12);
+  if(div & 0x8000) throw new Error('This MIDI file uses SMPTE timing, which is not supported.');
+  const notes = [], sigs = [], names = [];
+  let tempo = null, title = '', pos = 8 + dv.getUint32(4);
+  for(let tr = 0; tr < ntrk && pos + 8 <= bytes.length; tr++){
+    if(str(pos, 4) !== 'MTrk'){ break; }
+    const end = Math.min(bytes.length, pos + 8 + dv.getUint32(pos + 4));
+    let p = pos + 8, t = 0, status = 0;
+    const open = new Map(), prog = new Array(16).fill(0);
+    const vlq = () => { let v = 0, b; do{ b = bytes[p++]; v = (v << 7) | (b & 0x7f); }while(b & 0x80 && p < end); return v; };
+    while(p < end){
+      t += vlq();
+      let st = bytes[p];
+      if(st & 0x80) p++; else st = status;
+      if(st === 0xff){
+        const type = bytes[p++], len = vlq(), d = bytes.subarray(p, p + len); p += len;
+        if(type === 0x51 && len === 3 && tempo === null) tempo = 60000000 / ((d[0] << 16) | (d[1] << 8) | d[2]);
+        else if(type === 0x58 && len >= 2) sigs.push({t, num:d[0], den:Math.pow(2, d[1])});
+        else if(type === 0x03 && !names[tr]){ names[tr] = new TextDecoder().decode(d).trim(); if(!title && tr === 0) title = names[tr]; }
+        else if(type === 0x2f) break;
+        continue;
+      }
+      if(st === 0xf0 || st === 0xf7){ p += vlq(); continue; }
+      status = st;
+      const ch = st & 15, cmd = st & 0xf0;
+      if(cmd === 0xc0 || cmd === 0xd0){ if(cmd === 0xc0) prog[ch] = bytes[p]; p += 1; continue; }
+      const a = bytes[p], b = bytes[p + 1]; p += 2;
+      if(cmd !== 0x90 && cmd !== 0x80) continue;
+      const k = ch * 128 + a;
+      if(cmd === 0x90 && b > 0){ if(!open.has(k)) open.set(k, []); open.get(k).push(t); continue; }
+      const starts = open.get(k);
+      if(starts && starts.length){ const s0 = starts.shift(); if(t > s0) notes.push({tr, ch, prog:prog[ch], midi:a, start:s0 * 960 / div, end:t * 960 / div}); }
+    }
+    pos = end;
+  }
+  if(!notes.length) throw new Error('This MIDI file has no notes.');
+  // bars from the time signatures
+  sigs.sort((a, b) => a.t - b.t);
+  const last = Math.max(...notes.map(n => n.end));
+  const barTicks = [], barStart = [];
+  let t = 0, si = 0, sig = {num:4, den:4};
+  while(t < last - 1 && barTicks.length < 2000){
+    while(si < sigs.length && sigs[si].t * 960 / div <= t + 1){ sig = sigs[si]; si++; }
+    const len = Math.round(sig.num * 3840 / sig.den);
+    barStart.push(t); barTicks.push(len); t += len;
+  }
+  // round to the note grid that fits best (16ths, triplet 8ths, or 32nds)
+  const grids = [240, 160, 120], err = g => notes.reduce((a, n) => a + Math.abs(n.start - Math.round(n.start / g) * g), 0) / notes.length;
+  const grid = grids.find(g => err(g) <= 12) || 120;
+  for(const n of notes){ n.start = Math.round(n.start / grid) * grid; n.end = Math.max(n.start + grid, Math.round(n.end / grid) * grid); }
+  const barAt = tick => { let lo = 0, hi = barStart.length - 1; while(lo < hi){ const m = (lo + hi + 1) >> 1; if(barStart[m] <= tick) lo = m; else hi = m - 1; } return lo; };
+  const GM = ['Piano', 'Chromatic percussion', 'Organ', 'Guitar', 'Bass', 'Strings', 'Ensemble', 'Brass', 'Reed', 'Pipe', 'Synth lead', 'Synth pad', 'Synth effects', 'Ethnic', 'Percussive', 'Sound effects'];
+  const groups = new Map();
+  for(const n of notes){ if(n.ch === 9) continue; const k = n.tr * 16 + n.ch; if(!groups.has(k)) groups.set(k, []); groups.get(k).push(n); }
+  const staves = [], pitched = [];
+  for(const [k, ns] of groups){
+    const prog = ns[0].prog, fam = GM[prog >> 3], tr = k >> 4;
+    const name = names[tr] || fam;
+    if(prog >= 24 && prog <= 39){
+      const bass = prog >= 32, low = Math.min(...ns.map(n => n.midi));
+      const tuning = (bass ? (low < 28 ? TUNINGS.bass5 : TUNINGS.bass4) : (low < 40 ? TUNINGS.seven || TUNINGS.standard : TUNINGS.standard)).notes;
+      const events = [], used = new Map();
+      let hand = 3;
+      ns.sort((a, b) => a.start - b.start || b.midi - a.midi);
+      for(const n of ns){
+        const taken = used.get(n.start) || new Set();
+        let best = null;
+        tuning.forEach((open, s) => {
+          const fret = n.midi - open;
+          if(fret < 0 || fret > 24 || taken.has(s)) return;
+          const cost = Math.abs(fret - hand) + (fret > 12 ? 2 : 0) - (fret === 0 ? 1 : 0);
+          if(!best || cost < best.cost) best = {s, fret, cost};
+        });
+        if(!best) continue;
+        taken.add(best.s); used.set(n.start, taken);
+        if(best.fret) hand = best.fret;
+        const bi = barAt(n.start);
+        events.push({bar:bi, tick:n.start - barStart[bi], s:best.s, fret:best.fret, dead:false, tech:null});
+      }
+      if(events.length) staves.push({order:k, name, tuning:tuning.slice(), events});
+      continue;
+    }
+    // piano parts split at middle C into the two hands; overlapping rhythms get extra voices
+    const hands = prog < 8 && ns.some(n => n.midi < 60) && ns.some(n => n.midi >= 60) ? [['RH', n => n.midi >= 60], ['LH', n => n.midi < 60]] : [['V', () => true]];
+    const voices = [];
+    for(const [label, pick] of hands){
+      const mine = ns.filter(pick).sort((a, b) => a.start - b.start || a.midi - b.midi);
+      const chords = [];
+      for(const n of mine){
+        const c = chords[chords.length - 1];
+        if(c && c.start === n.start){ if(!c.midis.includes(n.midi)) c.midis.push(n.midi); c.end = Math.min(c.end, n.end); }
+        else chords.push({start:n.start, end:n.end, midis:[n.midi]});
+      }
+      const lanes = [];
+      for(const c of chords){
+        let lane = lanes.find(l => l.end <= c.start);
+        if(!lane){
+          if(lanes.length < 3){ lane = {end:0, list:[]}; lanes.push(lane); }
+          else { lane = lanes.reduce((a, b) => a.end < b.end ? a : b); const prev = lane.list[lane.list.length - 1]; if(prev) prev.end = Math.max(prev.start + grid, c.start); }
+        }
+        lane.list.push(c); lane.end = c.end;
+      }
+      lanes.forEach((lane, li) => {
+        const bars = barTicks.map(() => []);
+        for(const c of lane.list){
+          let s0 = c.start;
+          const e0 = Math.max(c.end, s0 + grid);
+          while(s0 < e0){
+            const bi = barAt(s0), bEnd = barStart[bi] + barTicks[bi], e1 = Math.min(e0, bEnd);
+            bars[bi].push({startU:Math.round((s0 - barStart[bi]) / 10), durU:Math.round((e1 - s0) / 10), pitches:c.midis.map(m => ({midi:m, tie:e1 < e0}))});
+            s0 = e1;
+            if(bi >= barStart.length - 1 && e1 >= bEnd) break;
+          }
+        }
+        if(lane.list.length) voices.push({label:label === 'V' ? 'V' + (li + 1) : label + (li ? li + 1 : ''), bars});
+      });
+    }
+    if(voices.length) pitched.push({order:k, name, voices});
+  }
+  return {barTicks, staves, pitched, title, artist:'', tempo:tempo || 120};
+}
 async function importGuitarPro(file){
-  toast('Reading Guitar Pro file...');
+  const midi = MIDI_EXT.test(file.name);
+  toast(midi ? 'Reading MIDI file...' : 'Reading the file...');
   try{
-    const at = await loadAlphaTab();
-    try{ at.Logger.logLevel = at.LogLevel.None; }catch(e){}
     const buf = new Uint8Array(await file.arrayBuffer());
-    let score;
-    try{ score = at.importer.ScoreLoader.loadScoreFromBytes(buf); }
-    catch(e){ throw new Error('This file could not be read as Guitar Pro. It may be damaged or a format alphaTab does not support.'); }
-    const res = scoreToSong(score, file.name);
+    let res;
+    if(midi) res = buildImported(readMidi(buf), file.name);
+    else {
+      const at = await loadAlphaTab();
+      try{ at.Logger.logLevel = at.LogLevel.None; }catch(e){}
+      let score;
+      try{ score = at.importer.ScoreLoader.loadScoreFromBytes(buf); }
+      catch(e){ throw new Error('This file could not be read as Guitar Pro or MusicXML. It may be damaged or a format alphaTab does not support.'); }
+      res = scoreToSong(score, file.name);
+    }
     loadSong(res.song);
     const n = res.song.tracks.length;
-    const notes = [`Imported ${res.bars} bars${n > 1 ? ` and ${n} tracks (switch tracks next to the title)` : ''}. Save it to keep it.`];
+    const notes = [`Imported ${res.bars} ${res.bars === 1 ? "bar" : "bars"}${n > 1 ? ` and ${n} tracks (switch tracks next to the title)` : ''}. Save it to keep it.`];
     if(!res.exact) notes.push('Some rhythms (such as quintuplets) do not fit the grid exactly and were rounded.');
-    notes.push('Repeats are written out once, as they appear in the file.');
+    notes.push(midi ? 'MIDI has no fingering, so frets were chosen for you, and timing was rounded to the nearest note value.' : 'Repeats are written out once, as they appear in the file.');
     $('#warn').textContent = [...notes, ...parsed.warnings].join(' ');
     toast(n > 1 ? `Imported ${n} tracks` : 'Imported');
     closeDrawer();
@@ -1659,7 +1908,7 @@ async function decodeImage(file){
 }
 
 // Find staff systems by their long horizontal lines, then cut each one at its bar lines.
-function detectSlices(cv){
+function detectSlices(cv, sheet){
   const w = cv.width, h = cv.height, N = w * h;
   const d = cv.getContext('2d', {willReadFrequently:true}).getImageData(0, 0, w, h).data;
   const lum = new Uint8Array(N);
@@ -1698,13 +1947,33 @@ function detectSlices(cv){
     for(let i = 1; i < L.length; i++){ if(L[i].y - L[i - 1].y <= sp * 1.5) g.push(L[i]); else { flush(); g = [L[i]]; } }
     flush();
   }
+  // Sheet music: staves joined by a line down the left edge or through the bars (a piano grand staff) are read together.
+  const groups = [];
+  for(const g of systems){
+    const prev = groups[groups.length - 1];
+    if(sheet && prev){
+      const a = prev[prev.length - 1], ya = Math.round(a[0].y), yb = Math.round(g[g.length - 1].y);
+      const sp = (a[a.length - 1].y - a[0].y) / Math.max(1, a.length - 1);
+      const gap = g[0].y - a[a.length - 1].y;
+      const xa = Math.max(Math.min(...a.map(l => l.x0)), Math.min(...g.map(l => l.x0))) - Math.round(sp * 3);
+      const xb = Math.min(Math.max(...a.map(l => l.x1)), Math.max(...g.map(l => l.x1)));
+      let joined = false;
+      if(gap < sp * 14) for(let x = Math.max(0, xa); x <= xb && !joined; x++){
+        let k = 0; for(let y = ya; y <= yb; y++) k += ink[y * w + x];
+        if(k >= (yb - ya + 1) * 0.9) joined = true;
+      }
+      if(joined){ prev.push(g); continue; }
+    }
+    groups.push([g]);
+  }
 
   const slices = [];
-  systems.forEach((g, si) => {
-    const yT = g[0].y, yB = g[g.length - 1].y, sp = (yB - yT) / (g.length - 1);
+  const flat = groups.map(gr => [].concat(...gr));
+  flat.forEach((g, si) => {
+    const f = groups[si][0], yT = g[0].y, yB = g[g.length - 1].y, sp = (f[f.length - 1].y - f[0].y) / (f.length - 1);
     const x0 = Math.min(...g.map(l => l.x0)), x1 = Math.max(...g.map(l => l.x1));
-    const prevB = si ? systems[si - 1][systems[si - 1].length - 1].y : null;
-    const nextT = si < systems.length - 1 ? systems[si + 1][0].y : null;
+    const prevB = si ? flat[si - 1][flat[si - 1].length - 1].y : null;
+    const nextT = si < flat.length - 1 ? flat[si + 1][0].y : null;
     let top = yT - sp * (si === 0 ? 6 : 4.5); if(prevB !== null) top = Math.max(top, (prevB + yT) / 2);
     let bot = yB + sp * 4.5; if(nextT !== null) bot = Math.min(bot, (yB + nextT) / 2);
     top = Math.max(0, Math.floor(top)); bot = Math.min(h, Math.ceil(bot));
@@ -1715,7 +1984,7 @@ function detectSlices(cv){
       if(k >= need){ if(bars.length && x - bars[bars.length - 1] <= 4) bars[bars.length - 1] = x; else bars.push(x); }
     }
     const scale = Math.max(1, Math.min(3, 16 / sp));
-    const maxW = Math.max(200, 1400 / scale);
+    const maxW = Math.max(200, (sheet ? 2400 : 1400) / scale);
     const mk = (a, b) => { const xa = Math.max(0, a - 6), xb = Math.min(w, b + 6); return {x:xa, y:top, w:xb - xa, h:bot - top, scale}; };
     const bounds = [x0, ...bars.filter(b => b > x0 + 8 && b < x1 - 8), x1];
     let start = bounds[0], prev = start;
@@ -1731,7 +2000,7 @@ function detectSlices(cv){
     const bandH = Math.min(h, Math.max(300, Math.round(w * 0.7)));
     for(let y = 0; y < h; y += bandH) slices.push({x:0, y, w, h:Math.min(bandH, h - y), scale:Math.max(1, Math.min(2, 1400 / w))});
   }
-  return {slices:slices.slice(0, 150), systems:systems.length};
+  return {slices:slices.slice(0, 150), systems:groups.length};
 }
 function cropBlob(src, sl){
   const cv = document.createElement('canvas');
@@ -1768,16 +2037,25 @@ async function onImageFile(file){
     w = Math.round(w * k); h = Math.round(h * k);
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
     cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
-    const det = detectSlices(cv);
-    imgState = {canvas:cv, slices:det.slices, systems:det.systems, done:new Set(), name:(file.name || '').replace(/\.[^.]+$/, '') || 'Imported tab'};
-    const n = det.slices.length, pieces = n === 1 ? '1 piece' : `${n} pieces`;
-    $('#imgInfo').textContent = det.systems
-      ? `Found ${det.systems === 1 ? '1 staff' : det.systems + ' staves'}, split into ${pieces} at the bar lines.`
-      : `No staff lines were found, so the image will be read as ${pieces}.`;
+    imgState = {canvas:cv, done:new Set(), name:(file.name || '').replace(/\.[^.]+$/, '') || 'Imported music'};
+    detectImage();
     $('#imgPreviewWrap').hidden = false; drawPreview();
     $('#imgGo').disabled = false; setImgStatus('');
   }catch(e){ setImgStatus('This image could not be opened. Try saving it as PNG or JPEG.'); }
 }
+const sheetMode = () => imgInst.value === 'sheet';
+function detectImage(){
+  const sheet = sheetMode(), det = detectSlices(imgState.canvas, sheet);
+  Object.assign(imgState, {slices:det.slices, systems:det.systems, sheet, done:new Set()});
+  const n = det.slices.length, pieces = n === 1 ? '1 piece' : `${n} pieces`;
+  const found = sheet ? (det.systems === 1 ? '1 line of music' : det.systems + ' lines of music') : (det.systems === 1 ? '1 staff' : det.systems + ' staves');
+  $('#imgInfo').textContent = det.systems
+    ? `Found ${found}, split into ${pieces}${sheet ? '' : ' at the bar lines'}.`
+    : `No staff lines were found, so the image will be read as ${pieces}.`;
+}
+function updateImgButton(){ $('#imgGo').textContent = sheetMode() ? 'Convert to ABC notation' : 'Convert to tab'; }
+imgInst.addEventListener('change', () => { updateImgButton(); if(imgState && imgState.sheet !== sheetMode()){ detectImage(); drawPreview(); } });
+updateImgButton();
 function buildPrompt(k, hint){
   return `You are transcribing a screenshot, scan, or photo of stringed-instrument tablature into plain ASCII tab.
 You are given ${k} image${k > 1 ? 's' : ''}. Each image is one horizontal piece of a tab staff, cut at bar lines, given in reading order. ${hint}
@@ -1793,6 +2071,49 @@ Rules:
 Reply with only JSON in this shape:
 {"stringNames": ["G","D","A","E"], "bpm": 120, "blocks": ["G|...|\\nD|...|\\nA|...|\\nE|...|"]}
 Use null for bpm unless a tempo mark is visible.`;
+}
+function buildSheetPrompt(k){
+  return `You are transcribing a screenshot, scan, or photo of sheet music (piano, or a single melody line) into a plain text note format.
+You are given ${k} image${k > 1 ? 's' : ''}. Each image is one line (system) of music, given in reading order.
+
+Note format:
+- One text line per staff, starting with a label and a colon. For piano, "RH:" is the upper (treble) staff and "LH:" the lower (bass) staff. A single melody staff is "RH:". If one staff has two independent rhythms at once, put the second voice on its own line labelled "RH2:" or "LH2:".
+- Notes are a letter, an optional # or b, and an octave number: C4 is middle C, F#3, Bb5. Write the pitch that sounds: apply the clef, the key signature at the start of the line, and accidentals that carry through the bar.
+- Chords go in brackets: [C4 E4 G4]. A rest is r.
+- Lengths go after a slash: /1 whole, /2 half, /4 quarter, /8, /16, /32. Add . for dotted (/4.) or t for triplets (/8t). A length carries on to the following notes until you change it, but writing it on every note is fine.
+- Tie a note into the next one with ~ (C4~ or [C4~ E4]).
+- End every bar with |. Every line in a block has the same number of bars, and each bar adds up to the time signature (a 4/4 bar is four quarter notes, a 3/4 bar three). Fill silent bars with rests.
+- Leave out dynamics, fingering, pedal marks, lyrics, chord symbols, and grace notes.
+
+Example block for two bars of 4/4 piano:
+RH: E4/4 E4 F4 G4 | G4/4 F4 E4 D4 |
+LH: [C3 G3]/2 [C3 G3]/2 | [G2 D3]/2 [G2 B2]/2 |
+
+Reply with only JSON in this shape, one block string per image, in the same order:
+{"bpm": 96, "timeSignature": "4/4", "blocks": ["RH: ... |\nLH: ... |"]}
+Use null for bpm unless a tempo mark with a number is visible.`;
+}
+// Keep every voice in step: a block that leaves out a voice gets rests for its bars.
+function joinSheetBlocks(blocks){
+  const parsedBlocks = blocks.map(b => {
+    const lines = [];
+    for(const raw of b.split(/\r?\n/)){
+      const m = raw.trim().match(/^([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+      if(m && m[2].trim()) lines.push({label:m[1].toUpperCase(), body:m[2].trim()});
+    }
+    return lines;
+  }).filter(ls => ls.length);
+  const labels = [];
+  for(const ls of parsedBlocks) for(const l of ls) if(!labels.includes(l.label)) labels.push(l.label);
+  const barsIn = body => body.replace(/\|+\s*$/, '').split('|').length;
+  return parsedBlocks.map(ls => {
+    const n = Math.max(...ls.map(l => barsIn(l.body)));
+    return labels.map(lab => {
+      const mine = ls.filter(l => l.label === lab);
+      if(mine.length) return mine.map(l => `${lab}: ${/\|\s*$/.test(l.body) ? l.body : l.body + ' |'}`).join('\n');
+      return `${lab}: ${Array(n).fill('r/8').join(' | ')} |`;
+    }).join('\n');
+  }).join('\n\n');
 }
 function guessTuning(names, blocks){
   let n = names ? names.length : 0;
@@ -1817,8 +2138,8 @@ async function convertImage(){
   const lanes = settings.reader === 'ollama' ? 1 : 2;
   const sl = imgState.slices, batches = [];
   for(let i = 0; i < sl.length; i += per) batches.push(sl.slice(i, i + per).map((_, j) => i + j));
-  const inst = imgInst.value;
-  const hint = inst !== 'auto'
+  const inst = imgInst.value, sheet = inst === 'sheet';
+  const hint = sheet ? '' : inst !== 'auto'
     ? `The instrument is ${TUNINGS[inst].name} with ${TUNINGS[inst].notes.length} strings, so every block needs exactly ${TUNINGS[inst].notes.length} lines.`
     : 'Work out the number of strings and their names from the staff, using the labels at the left edge if they are shown.';
   const results = new Array(batches.length).fill(null);
@@ -1826,14 +2147,14 @@ async function convertImage(){
   imgCtl = new AbortController(); const signal = imgCtl.signal;
   $('#imgGo').disabled = true; $('#imgStop').hidden = false; $('#imgIn').disabled = true;
   let fatal = null, next = 0, finished = 0;
-  const update = () => setImgStatus(`Reading the tab: ${finished} of ${batches.length} ${batches.length === 1 ? 'request' : 'requests'} done. Long tabs can take a few minutes${settings.reader === 'ollama' ? ', longer on a local model' : ''}.`);
+  const update = () => setImgStatus(`Reading the ${sheet ? 'music' : 'tab'}: ${finished} of ${batches.length} ${batches.length === 1 ? 'request' : 'requests'} done. Long tabs can take a few minutes${settings.reader === 'ollama' ? ', longer on a local model' : ''}.`);
   update();
   const worker = async () => {
     while(!fatal && !signal.aborted && next < batches.length){
       const bi = next++, idx = batches[bi];
       try{
         const blobs = await Promise.all(idx.map(i => cropBlob(imgState.canvas, sl[i])));
-        const out = await askJSON(buildPrompt(idx.length, hint), blobs, signal);
+        const out = await askJSON(sheet ? buildSheetPrompt(idx.length) : buildPrompt(idx.length, hint), blobs, signal);
         results[bi] = out && typeof out === 'object' ? out : null;
         idx.forEach(i => imgState.done.add(i));
       }catch(e){
@@ -1859,12 +2180,13 @@ function finishImport(results, batches, fatal, stopped){
     if(r.blocks.length < want) missing += want - r.blocks.length;
   });
   if(!blocks.length){
-    setImgStatus(messageFor(fatal) || (stopped ? 'Stopped before any piece was read.' : 'No tab could be read from this image. Try a sharper or larger screenshot.'));
+    setImgStatus(messageFor(fatal) || (stopped ? 'Stopped before any piece was read.' : `No ${imgState.sheet ? 'music' : 'tab'} could be read from this image. Try a sharper or larger screenshot.`));
     return;
   }
   const inst = imgInst.value;
-  const tun = inst !== 'auto' ? inst : guessTuning(names, blocks);
-  loadSong({id:null, unsaved:true, title:imgState.name, artist:'', bpm:Math.max(20, Math.min(320, bpm || 100)), cpb:8, tuning:tun, tab:blocks.join('\n\n')});
+  const tempo = Math.max(20, Math.min(320, bpm || (imgState.sheet ? 90 : 100)));
+  if(imgState.sheet) loadSong({id:null, unsaved:true, kind:'notes', fmt:'abc', title:imgState.name, artist:'', bpm:tempo, cpb:4, tuning:null, tab:noteTextToAbc(joinSheetBlocks(blocks), {title:imgState.name, bpm:tempo})});
+  else loadSong({id:null, unsaved:true, title:imgState.name, artist:'', bpm:tempo, cpb:8, tuning:inst !== 'auto' ? inst : guessTuning(names, blocks), tab:blocks.join('\n\n')});
   let msg = `Converted ${parsed.measures.length} bars from the image. Check them against the original, then save.`;
   if(missing) msg += ` ${missing === 1 ? '1 piece' : missing + ' pieces'} could not be read and ${missing === 1 ? 'is' : 'are'} missing.`;
   if(fatal) msg += ' ' + messageFor(fatal);
@@ -2222,19 +2544,35 @@ function loadYTApi(){
 const YT_ERR = {2:'That link does not point to a valid video.', 5:'The video could not be played in this browser.', 100:'That video was removed or is private.',
   101:'The owner of this video does not allow it to be played on other sites.', 150:'The owner of this video does not allow it to be played on other sites.',
   153:'YouTube refused the player. Open Ongaku Renshuu through the launcher (http://127.0.0.1), not as a file.'};
+const showFrame = on => { const f = yt.player && yt.player.getIframe ? yt.player.getIframe() : null; if(f) f.style.visibility = on ? '' : 'hidden'; };
+// Blank the player when the current song has no video of its own.
+function clearVideo(){
+  yt.id = null; yt.want = null;
+  if(yt.player && yt.ready){ try{ yt.player.stopVideo(); }catch(e){} }
+  showFrame(false);
+  $('#ytMsg').textContent = 'This song has no video yet. Paste a YouTube link above.'; $('#ytMsg').hidden = false;
+}
 async function loadVideo(id){
+  yt.want = id;
   $('#ytMsg').textContent = 'Loading video...'; $('#ytMsg').hidden = false;
   try{ await loadYTApi(); }catch(e){ $('#ytMsg').textContent = e.message; return; }
+  if(yt.want !== id) return; // the song changed while YouTube was loading
   if(yt.player && yt.ready){
     yt.id = id; yt.state = -1;
-    yt.player.cueVideoById(id); $('#ytMsg').hidden = true; refreshVideoUI(); return;
+    yt.player.cueVideoById(id); showFrame(true); $('#ytMsg').hidden = true; refreshVideoUI(); return;
   }
+  if(yt.player) return; // still starting; onReady cues whatever is wanted then
   yt.id = id;
   yt.player = new YT.Player('ytFrame', {
     videoId: id, width:'100%', height:'100%',
     playerVars: {playsinline:1, rel:0, modestbranding:1, origin:location.origin},
     events: {
-      onReady: () => { yt.ready = true; $('#ytMsg').hidden = true; try{ yt.player.setPlaybackRate(settings.speed / 100); }catch(e){} refreshVideoUI(); },
+      onReady: () => {
+        yt.ready = true; try{ yt.player.setPlaybackRate(settings.speed / 100); }catch(e){}
+        if(!yt.want) clearVideo();
+        else { if(yt.want !== yt.id){ yt.id = yt.want; yt.player.cueVideoById(yt.id); } $('#ytMsg').hidden = true; }
+        refreshVideoUI();
+      },
       onStateChange: e => onVideoState(e.data),
       onPlaybackRateChange: e => { yt.rate = e.data || 1; if(Math.abs(yt.rate * 100 - settings.speed) > 1) setVInfo(`YouTube is playing at ${yt.rate}x, the closest speed it supports.`); },
       onError: e => { $('#ytMsg').textContent = YT_ERR[e.data] || 'YouTube could not play this video.'; $('#ytMsg').hidden = false; }
@@ -2314,7 +2652,7 @@ function videoSeekStep(k){
 }
 function refreshVideoUI(){
   const v = song && song.video;
-  $('#ytUrl').value = v && v.id ? `https://youtu.be/${v.id}` : $('#ytUrl').value;
+  $('#ytUrl').value = v && v.id ? `https://youtu.be/${v.id}` : '';
   $('#ytOffset').value = v ? (+v.offset).toFixed(2) : '';
   $('#ytBpm').value = song ? (+song.bpm).toFixed(2) : '';
   $('#ytNotes').checked = !!settings.videoNotes;
@@ -2322,8 +2660,8 @@ function refreshVideoUI(){
 function videoSongChanged(){
   if(!$('#videoPanel').hidden){
     const v = song.video;
-    if(v && v.id){ if(v.id !== yt.id) loadVideo(v.id); }
-    else if(yt.player && yt.ready){ try{ yt.player.stopVideo(); }catch(e){} yt.id = null; $('#ytMsg').textContent = 'This song has no video yet. Paste a YouTube link above.'; $('#ytMsg').hidden = false; }
+    if(v && v.id){ if(v.id !== yt.id || v.id !== yt.want) loadVideo(v.id); }
+    else clearVideo();
   }
   refreshVideoUI(); setVInfo('');
 }
@@ -2335,15 +2673,38 @@ function setVideoOpen(open){
   if(open){
     if(playing) pause();
     refreshVideoUI();
-    if(song.video && song.video.id && song.video.id !== yt.id) loadVideo(song.video.id);
+    if(song.video && song.video.id){ if(song.video.id !== yt.id) loadVideo(song.video.id); }
+    else clearVideo();
   }
   requestAnimationFrame(() => render());
 }
-function markChanged(msg){ setVInfo(msg + (song.demo || song.unsaved || !library.some(x => x.id === song.id) ? ' Save the song to keep it.' : ' Press Save to library to keep it.')); }
+// Each song keeps its own video, offset, and tempo. Library songs are updated in place; demos keep theirs in ongaku.videos.
+function persistVideo(){
+  const v = song.video && song.video.id ? {id:song.video.id, offset:+song.video.offset || 0} : null;
+  const i = song.id && !song.unsaved ? library.findIndex(x => x.id === song.id) : -1;
+  if(i >= 0){
+    if(v) library[i].video = v; else delete library[i].video;
+    library[i].bpm = song.bpm;
+    store.set('ongaku.library', library);
+    return true;
+  }
+  if(song.demo){
+    const all = store.get('ongaku.videos', {}) || {};
+    if(v) all[song.id] = Object.assign(v, {bpm:song.bpm}); else delete all[song.id];
+    store.set('ongaku.videos', all);
+    return true;
+  }
+  return false;
+}
+function markChanged(msg){ setVInfo(msg + (persistVideo() ? '' : ' Save the song to keep it.')); }
 $('#togVideo').addEventListener('click', () => setVideoOpen($('#videoPanel').hidden));
 $('#ytLoad').addEventListener('click', () => {
   ensureAudio();
   const id = parseYouTubeId($('#ytUrl').value);
+  if(!$('#ytUrl').value.trim() && song.video){
+    if(playing) pause();
+    delete song.video; clearVideo(); refreshVideoUI(); markChanged('Video removed from this song.'); return;
+  }
   if(!id){ setVInfo('That does not look like a YouTube link.'); return; }
   if(playing) pause();
   const same = song.video && song.video.id === id;
@@ -2654,6 +3015,12 @@ function updateKeys(k){
   for(const s of (sounding[k] || [])) if(!want.has(s.midi) || s.lh === false) want.set(s.midi, s.lh);
   for(const [m] of litKeys) if(!want.has(m) && keyEls[m]) keyEls[m].classList.remove('on', 'lh');
   for(const [m, lh] of want){ const el = keyEls[m]; if(el){ el.classList.add('on'); el.classList.toggle('lh', !!lh); } }
+  // keys struck on this step dip briefly, so a repeated note shows as a new press
+  const st = parsed.steps[k];
+  if(st) for(const nt of st.notes){
+    const el = !nt.dead && keyEls[noteMidi(nt)];
+    if(el && want.has(noteMidi(nt))){ el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit'); }
+  }
   litKeys = want;
 }
 pianoEl.addEventListener('pointerdown', async e => {
@@ -2670,6 +3037,221 @@ pianoEl.addEventListener('pointerdown', async e => {
   const up = () => { try{ v.release(ctx.currentTime); }catch(err){} key.classList.remove('press'); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
   window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
 });
+
+/* ---------- ABC notation (the standard plain-text format for sheet music, abcnotation.com) ----------
+   Piano songs are written in ABC. It is read by turning it into note text, so playback and the sheet music
+   view share one path. Covers the everyday subset: X T C M L Q K V fields, [V:] voice switches, accidentals
+   ^ _ =, octaves ' and ,, lengths, chords, rests, ties, broken rhythm (> <), and tuplets. */
+const ABC_KEYS = {C:0, G:1, D:2, A:3, E:4, B:5, 'F#':6, 'C#':7, F:-1, Bb:-2, Eb:-3, Ab:-4, Db:-5, Gb:-6, Cb:-7};
+const ABC_MODES = {maj:0, ion:0, m:-3, min:-3, aeo:-3, mix:-1, dor:-2, phr:-4, lyd:1, loc:-5};
+function abcKeySig(k){
+  const acc = {}, m = String(k || '').trim().match(/^([A-G][#b]?)\s*([A-Za-z]*)/);
+  if(!m || ABC_KEYS[m[1]] === undefined) return acc;
+  const mode = m[2].toLowerCase().slice(0, 3);
+  const n = ABC_KEYS[m[1]] + (ABC_MODES[mode] || 0);
+  for(let i = 0; i < n; i++) acc['FCGDAEB'[i]] = 1;
+  for(let i = 0; i < -n; i++) acc['BEADGCF'[i]] = -1;
+  return acc;
+}
+const abcClef = s => { const c = String(s || '').match(/clef\s*=\s*(\w+)|\b(bass|treble)\b/i); return c ? (c[1] || c[2]).toLowerCase() : null; };
+function abcFrac(txt){
+  const m = String(txt || '').match(/^(\d*)(\/*)(\d*)$/);
+  if(!m) return 1;
+  const num = m[1] ? +m[1] : 1;
+  if(!m[2]) return num;
+  return num / (m[3] ? +m[3] : Math.pow(2, m[2].length));
+}
+function abcToNoteText(src){
+  const meta = {title:'', composer:'', bpm:null};
+  const skipped = new Set();
+  let unit = null, meterU = 384, key = {}, body = false;
+  const voices = new Map(), order = [];
+  const voice = id => {
+    if(!voices.has(id)){ voices.set(id, {id, clef:null, bars:[], cur:[], t:0, bacc:{}}); order.push(id); }
+    return voices.get(id);
+  };
+  let v = null;
+  const unitU = () => unit || (meterU < 288 ? 24 : 48);
+  const field = (f, val) => {
+    val = val.trim();
+    if(f === 'T'){ if(!meta.title) meta.title = val; }
+    else if(f === 'C'){ if(!meta.composer) meta.composer = val; }
+    else if(f === 'L'){ const m = val.match(/^(\d+)\s*\/\s*(\d+)/); if(m) unit = Math.round(384 * m[1] / m[2]); }
+    else if(f === 'M'){
+      const m = val.match(/^(\d+)\s*\/\s*(\d+)/);
+      if(m) meterU = Math.round(384 * m[1] / m[2]); else if(/^C\|?$/.test(val)) meterU = 384;
+    }
+    else if(f === 'Q'){ const m = val.match(/(?:(\d+)\s*\/\s*(\d+)\s*=\s*)?(\d+)/); if(m) meta.bpm = Math.round(+m[3] * (m[1] ? (4 * m[1] / m[2]) : 1)); }
+    else if(f === 'K'){ key = abcKeySig(val); const c = abcClef(val); if(!body){ body = true; v = v || voice('1'); } if(c && v) v.clef = c; }
+    else if(f === 'V'){
+      const id = val.split(/\s+/)[0] || '1', vv = voice(id), c = abcClef(val.slice(id.length));
+      if(c) vv.clef = c;
+      if(body) v = vv;
+    }
+  };
+  const closeBar = () => { if(v && v.t > 0){ v.bars.push({evs:v.cur, len:v.t}); v.cur = []; v.t = 0; } if(v) v.bacc = {}; };
+  const pitchOf = (acc, letter, octs) => {
+    const up = letter.toUpperCase();
+    let oct = letter === up ? 4 : 5;
+    for(const ch of octs) oct += ch === "'" ? 1 : -1;
+    const slot = up + oct;
+    let a;
+    if(acc){ a = {'^':1, '^^':2, '_':-1, '__':-2, '=':0}[acc]; v.bacc[slot] = a; }
+    else a = slot in v.bacc ? v.bacc[slot] : (key[up] || 0);
+    return (oct + 1) * 12 + PCLASS[up.toLowerCase()] + a;
+  };
+  let tuplet = null, broken = 1;
+  const addEvent = (pitches, len) => {
+    let u = unitU() * len;
+    if(tuplet){ u *= tuplet.mult; if(--tuplet.left <= 0) tuplet = null; }
+    u = Math.round(u * broken); broken = 1;
+    if(u < 1) return;
+    if(pitches.length) v.cur.push({startU:v.t, durU:u, pitches});
+    v.t += u;
+  };
+  const NOTE = /^(\^\^|\^|__|_|=)?([A-Ga-g])([',]*)(\d*\/*\d*)(-?)/;
+  for(const raw of String(src || '').split(/\r?\n/)){
+    const line = raw.replace(/(^|[^\\])%.*$/, '$1');
+    const fm = line.match(/^([A-Za-z]):(.*)$/);
+    if(fm){ if(!/^[a-z]$/.test(fm[1]) || fm[1] === 'm') field(fm[1], fm[2]); continue; }
+    if(!body || !line.trim()) continue;
+    let i = 0;
+    while(i < line.length){
+      const rest = line.slice(i), ch = line[i];
+      let m;
+      if(/[\s`\\y]/.test(ch)){ i++; continue; }
+      if(ch === '"' || ch === '!' || (ch === '+' && /^\+[A-Za-z]/.test(rest))){ const j = line.indexOf(ch, i + 1); i = j < 0 ? line.length : j + 1; continue; }
+      if(ch === '{'){ const j = line.indexOf('}', i); i = j < 0 ? line.length : j + 1; continue; }
+      if((m = rest.match(/^\[([A-Za-z]):([^\]]*)\]/))){ field(m[1], m[2]); i += m[0].length; continue; }
+      if((m = rest.match(/^(\[\||:*\|+\]?:*|:+)(\[?\d+([,-]\d+)*)?/)) && m[0]){ closeBar(); i += m[0].length; continue; }
+      if((m = rest.match(/^\[\d+/))){ i += m[0].length; continue; }
+      if((m = rest.match(/^\((\d)(?::(\d*))?(?::(\d*))?/))){
+        const p = +m[1], q = m[2] ? +m[2] : ({2:3, 3:2, 4:3, 6:2, 8:3}[p] || 2);
+        tuplet = {mult:q / p, left:m[3] ? +m[3] : p}; i += m[0].length; continue;
+      }
+      if('()-.~HLMOPSTuv'.includes(ch)){ i++; continue; }
+      if((m = rest.match(/^(>+|<+)/))){
+        const k = Math.pow(0.5, m[1].length), last = v.cur[v.cur.length - 1];
+        const a = m[1][0] === '>' ? 2 - k : k;
+        if(last && last.startU + last.durU === v.t){ const nu = Math.round(last.durU * a); v.t += nu - last.durU; last.durU = nu; }
+        broken = m[1][0] === '>' ? k : 2 - k; i += m[0].length; continue;
+      }
+      if((m = rest.match(/^([zx])(\d*\/*\d*)/))){ addEvent([], abcFrac(m[2])); i += m[0].length; continue; }
+      if((m = rest.match(/^Z(\d*)/))){
+        for(let b = 0; b < (+m[1] || 1); b++){ v.t = meterU; closeBar(); }
+        i += m[0].length; continue;
+      }
+      if(ch === '['){
+        const j = line.indexOf(']', i);
+        if(j < 0){ i++; continue; }
+        const pitches = []; let inner = line.slice(i + 1, j), first = null;
+        while(inner.length){
+          const nm = inner.match(NOTE);
+          if(!nm){ inner = inner.slice(1); continue; }
+          pitches.push({midi:pitchOf(nm[1], nm[2], nm[3]), tie:!!nm[5]});
+          if(first === null) first = abcFrac(nm[4]);
+          inner = inner.slice(nm[0].length);
+        }
+        const om = line.slice(j + 1).match(/^(\d*\/*\d*)(-?)/);
+        if(om[2]) pitches.forEach(p => p.tie = true);
+        if(pitches.length) addEvent(pitches, (first || 1) * abcFrac(om[1]));
+        i = j + 1 + om[0].length; continue;
+      }
+      if((m = rest.match(NOTE))){
+        addEvent([{midi:pitchOf(m[1], m[2], m[3]), tie:!!m[5]}], abcFrac(m[4]));
+        i += m[0].length; continue;
+      }
+      skipped.add(ch); i++;
+    }
+  }
+  for(const id of order){ v = voices.get(id); closeBar(); }
+  const used = order.map(id => voices.get(id)).filter(x => x.bars.length);
+  const n = Math.max(0, ...used.map(x => x.bars.length));
+  const barUnits = [];
+  for(let b = 0; b < n; b++) barUnits[b] = Math.max(0, ...used.map(x => x.bars[b] ? x.bars[b].len : 0));
+  const count = {};
+  const list = used.map((x, k) => {
+    let label = x.clef ? (x.clef === 'bass' ? 'LH' : 'RH') : /^[A-Za-z][A-Za-z0-9_]*$/.test(x.id) ? x.id : 'V' + (k + 1);
+    count[label] = (count[label] || 0) + 1;
+    if(count[label] > 1) label += count[label];
+    return {label, bars:x.bars.map(b => b.evs)};
+  });
+  const warnings = [];
+  if(!body && String(src || '').trim()) warnings.push('ABC needs a K: line (the key, for example K:C) before the music starts.');
+  if(skipped.size) warnings.push(`Some ABC symbols were skipped: ${[...skipped].slice(0, 8).join(' ')}`);
+  return {text:list.length ? voicesToNoteText(list, barUnits) : '', warnings, meta};
+}
+// Write note text out as ABC, one line per voice for every four bars.
+function noteTextToAbc(text, info){
+  info = info || {};
+  const p = parseNotes(text), g = NOTE_U / (p.cpb || 4);
+  const counts = {};
+  p.measures.forEach(m => counts[m.len * g] = (counts[m.len * g] || 0) + 1);
+  const barU = +Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || 384;
+  const meter = barU % 96 === 0 ? `${barU / 96}/4` : barU % 48 === 0 ? `${barU / 48}/8` : `${barU / 24}/16`;
+  const L = 48;
+  const lenStr = u => {
+    const k = gcd(u, L), n = u / k, d = L / k;
+    if(d === 1) return n === 1 ? '' : String(n);
+    return (n === 1 ? '' : n) + (d === 2 ? '/' : '/' + d);
+  };
+  const STD = new Set([6, 9, 12, 18, 24, 36, 48, 72, 96, 144, 192, 288, 384]);
+  const tripletish = u => !STD.has(u) && STD.has(u * 1.5);
+  const out = ['X:1', `T:${info.title || 'Untitled'}`];
+  if(info.artist) out.push(`C:${info.artist}`);
+  out.push(`M:${meter}`, 'L:1/8', `Q:1/4=${info.bpm || 90}`);
+  p.voices.forEach(vo => out.push(`V:${vo.label} clef=${vo.staff}`));
+  // pick the sharp key (C to B) that needs the fewest written accidentals
+  const names = [];
+  for(const st of p.steps) for(const nt of st.notes) names.push(SHARP_NAMES[nt.midi % 12]);
+  let sharps = 0, best = Infinity;
+  for(let n = 0; n <= 5; n++){
+    const set = 'FCGDAEB'.slice(0, n);
+    const cost = names.filter(nm => nm.length > 1 ? !set.includes(nm[0]) : set.includes(nm[0])).length;
+    if(cost < best){ best = cost; sharps = n; }
+  }
+  out.push('K:' + ['C', 'G', 'D', 'A', 'E', 'B'][sharps]);
+  const keyAcc = abcKeySig(['C', 'G', 'D', 'A', 'E', 'B'][sharps]);
+  const barText = (evs, len) => {
+    const bacc = {}, toks = [];
+    const pitch = (midi, tie) => {
+      const nm = SHARP_NAMES[midi % 12], oct = Math.floor(midi / 12) - 1, letter = nm[0], want = nm.length > 1 ? 1 : 0;
+      const slot = letter + oct, cur = slot in bacc ? bacc[slot] : (keyAcc[letter] || 0);
+      bacc[slot] = want;
+      return (want !== cur ? (want ? '^' : '=') : '') + (oct >= 5 ? letter.toLowerCase() + "'".repeat(oct - 5) : letter + ','.repeat(4 - oct)) + (tie ? '-' : '');
+    };
+    const items = [];
+    let t = 0;
+    for(const e of evs){
+      if(e.start * g > t) items.push({u:e.start * g - t, rest:true});
+      items.push({u:e.dur * g, e});
+      t = (e.start + e.dur) * g;
+    }
+    if(len - t > 0) items.push({u:len - t, rest:true});
+    for(let i = 0; i < items.length; i++){
+      let group = 1;
+      if(tripletish(items[i].u) && i + 2 < items.length && tripletish(items[i + 1].u) && tripletish(items[i + 2].u)){ toks.push('(3'); group = 3; }
+      for(let j = i; j < i + group; j++){
+        const it = items[j], len2 = lenStr(group === 3 ? it.u * 1.5 : it.u);
+        if(it.rest || !it.e || it.e.rest){ toks.push('z' + len2); continue; }
+        const ns = it.e.midis.map((m, k) => pitch(m, it.e.ties[k]));
+        if(ns.length === 1){ const s = ns[0], tie = s.endsWith('-'); toks.push((tie ? s.slice(0, -1) : s) + len2 + (tie ? '-' : '')); }
+        else toks.push('[' + ns.join('') + ']' + len2);
+      }
+      i += group - 1;
+    }
+    return toks.join(' ');
+  };
+  for(let b = 0; b < p.measures.length; b += 4){
+    for(const vo of p.voices){
+      const bars = [];
+      for(let k = b; k < Math.min(b + 4, p.measures.length); k++) bars.push(barText(vo.bars[k] || [], p.measures[k].len * g));
+      out.push(`[V:${vo.label}] ${bars.join(' | ')} |`);
+    }
+  }
+  return out.join('\n');
+}
+const looksLikeAbc = t => /^K:/m.test(t) && /^(X|T|M|L):/m.test(t);
 
 /* ---------- Start ---------- */
 updatePlayBtn();

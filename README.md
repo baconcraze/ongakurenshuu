@@ -55,22 +55,31 @@ Ongaku Renshuu runs on http://127.0.0.1:8765. Your library is stored in the brow
 
 Press **Sheet music** in the bottom bar (or N) to see any guitar or bass tab as standard notation, with the cursor following along. Guitar is written an octave up with the usual "8" under the treble clef, as guitar music normally is.
 
-Piano songs are written as note text instead of tab: Library, then **New piano song**, or choose "Piano or melody" as the Type in the editor. They always show as a grand staff. A short example:
+Piano songs are written in [ABC notation](https://abcnotation.com/), the long-standing standard for writing sheet music as plain text (the piano counterpart of ASCII tab). Library, then **New piano song**, or choose "Piano or melody (ABC notation)" as the Type in the editor. They always show as a grand staff. A short example:
 
-    % Right hand melody, left hand chords
-    RH: E4/4 E4 F4 G4 | G4 F4 E4 D4 |
-    LH: [C3 G3]/2 [C3 G3] | [G2 D3]/2 [G2 B2] |
+    X:1
+    T:Ode to Joy
+    M:4/4
+    L:1/4
+    K:C
+    V:RH clef=treble
+    V:LH clef=bass
+    [V:RH] E E F G | G F E D |
+    [V:LH] [C,G,]2 [C,G,]2 | [G,,D,]2 [G,,B,,]2 |
 
-- One line per hand or voice, starting with a name and a colon. Names starting with L go on the bass staff, names starting with R on the treble staff, and anything else goes wherever its notes sit.
-- Each line holds whole bars, ended with `|`.
-- Notes are a letter, an optional `#` or `b`, and an octave number: `C4` is middle C, `F#3`, `Bb5`.
-- Chords go in brackets, `[C4 E4 G4]`, and `r` is a rest.
-- Lengths go after a slash: `/1` whole, `/2` half, `/4` quarter, `/8`, `/16`, `/32`. Add `.` for dotted (`/4.`) or `t` for a triplet (`/8t`). A length carries on until you change it.
-- `~` ties a note into the next one (`C4~` or `[C4~ E4]`). Lines starting with `%` are comments.
+- Header fields: `X:` number, `T:` title, `C:` composer, `M:` time signature, `L:` default note length, `Q:` tempo, `K:` key (`G`, `Am`, `Bb`...). The key's sharps and flats apply automatically.
+- `C D E F G A B` is the octave starting at middle C; lowercase `c d e` is the octave above. `'` raises a note an octave and `,` lowers it.
+- `^` sharp, `_` flat, `=` natural. A number after a note multiplies its length (`C2`), a slash divides it (`C/`, `C3/2`). `(3` starts a triplet, and `>` / `<` make dotted pairs.
+- Chords go in brackets, `[CEG]`; `z` is a rest; `-` ties a note into the next one; `|` ends a bar.
+- For piano, name a voice per hand (`V:RH clef=treble`, `V:LH clef=bass`) and start each line with `[V:RH]` or `[V:LH]`. Repeat signs are read but not played twice.
+
+Songs saved in the older simple note text (`RH: E4/4 E4 F4 G4 |`) still load, and switching the Type between the two converts the text for you.
+
+The demos include Ode to Joy, Twinkle Twinkle Little Star, Petzold's Minuet in G, the opening of Für Elise, and the opening of Bach's Prelude in C, all public domain.
 
 When the instrument is a piano (Auto picks one for piano songs, or choose a piano under **Sound**), a piano keyboard appears above the controls. Keys light up as notes play (gold for the right hand, blue for the left), and you can click keys to hear them.
 
-Guitar Pro files with piano or other non-guitar tracks now import those tracks too, written out as note text.
+Guitar Pro, MusicXML, and MIDI files with piano or other non-guitar tracks import those tracks too, written out as ABC.
 
 ## Sound
 
@@ -90,19 +99,28 @@ To sync a song:
 
 1. Play the video and press "Bar 1 starts now" right on the first downbeat of bar 1 (or type the time).
 2. Type a later bar number, pause the video exactly on that bar's downbeat, and press "starts now" again. Ongaku Renshuu fits the tempo so the bars line up.
-3. Fine-tune with the nudge buttons while it plays, then **Save to library** so the link and sync are kept with the song.
+3. Fine-tune with the nudge buttons while it plays.
+
+Each song keeps its own video and sync: changing songs switches to that song's video, or leaves the player blank if it has none. Library songs and demos remember theirs right away; a new song keeps its video once you save it. To remove a video, clear the link and press Load video.
 
 Tick "Play the tab sound too" to hear Ongaku Renshuu's instrument on top of the recording. This needs an internet connection, and some videos can't be embedded because their owners disallow it. The tab follows a single steady tempo, so live recordings that speed up or slow down will drift a little over long stretches; looping a section and re-syncing that bar works well for practice.
 
 ## Importing songs
 
-Library, then "Import file" reads Guitar Pro files (.gp, .gpx, .gp5, .gp4, .gp3) and plain-text ASCII tab. Guitar Pro files keep their tempo, tunings (including capo), and every guitar and bass track; switch tracks with the menu next to the song title. Drum tracks are skipped, and repeats are written out once, as they appear in the file.
+Library, then "Import file" reads:
 
-Guitar Pro files are read with alphaTab (MPL-2.0), included in vendor/.
+- **Guitar Pro** (.gp, .gpx, .gp5, .gp4, .gp3): tempo, tunings (including capo), and every track.
+- **MusicXML** (.musicxml, .xml, .mxl), the standard exchange format that MuseScore, Sibelius, Finale, Dorico and most notation programs export. Tab staves become tab, piano and other parts become ABC.
+- **MIDI** (.mid, .midi). Guitar and bass parts become tab with frets chosen for you, piano parts are split into right and left hand at middle C, and timing is rounded to the nearest note value.
+- **ABC notation** (.abc) for piano and melody, and plain-text **ASCII tab** (.txt, .tab) for guitar and bass.
+
+Multi-track files keep every pitched track; switch tracks with the menu next to the song title. Drum tracks are skipped, and repeats are written out once, as they appear in the file.
+
+Guitar Pro and MusicXML files are read with alphaTab (MPL-2.0), included in vendor/.
 
 ## Image import
 
-Library, then "Import from image". Choose a reader and a model:
+Library, then "Import from image". It reads tab and sheet music: set Instrument to "Piano or melody, sheet music" for piano scores, lead sheets, or any standard notation. Piano grand staves are kept together, each line of music is read whole so the clefs and key signature stay in view, and the result comes out as ABC notation. Choose a reader and a model:
 
 - **Ollama** lists the models you've installed and greys out ones that can't read images. Pull more with `ollama pull <name>` and press Refresh list.
 - **Anthropic API** needs a key from console.anthropic.com. The key stays in your browser and requests go straight to Anthropic.
