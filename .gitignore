@@ -1,0 +1,17 @@
+# Generated at runtime by ongaku-renshuu.sh
+soundfonts/index.json
+soundfonts/*.part
+# Downloaded or user-added SoundFonts (only the bundled Sonivox font is tracked)
+soundfonts/*.sf2
+soundfonts/*.sf3
+!soundfonts/sonivox.sf2
+soundfonts/GeneralUser-GS-LICENSE.txt
+# Local install backups and build output
+backups/
+dist/
+*.zip
+# Editor and OS clutter
+.DS_Store
+*~
+.vscode/
+.idea/

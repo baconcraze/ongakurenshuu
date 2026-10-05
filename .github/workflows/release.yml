@@ -1,0 +1,41 @@
+# Push a tag like v1.5.0 (matching the VERSION file) to publish a release with ongaku-renshuu.zip attached.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches VERSION
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(tr -d '[:space:]' < VERSION)"
+          if [ "$want" != "$have" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ($have). Update VERSION and the ongaku-renshuu-version meta tag first."
+            exit 1
+          fi
+          grep -q "name=\"ongaku-renshuu-version\" content=\"$have\"" index.html || { echo "index.html version meta tag is not $have"; exit 1; }
+
+      - name: Check scripts
+        run: bash -n install.sh && bash -n update.sh && bash -n ongaku-renshuu.sh
+
+      - name: Build ongaku-renshuu.zip
+        run: |
+          mkdir -p dist/ongaku-renshuu
+          git archive HEAD | tar -x -C dist/ongaku-renshuu
+          rm -rf dist/ongaku-renshuu/.github dist/ongaku-renshuu/.gitignore
+          chmod 755 dist/ongaku-renshuu/*.sh
+          cd dist && zip -qr ongaku-renshuu.zip ongaku-renshuu
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/ongaku-renshuu.zip --title "Ongaku Renshuu $GITHUB_REF_NAME" --generate-notes
