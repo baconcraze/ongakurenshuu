@@ -6,8 +6,8 @@ A free, MIT-licensed tab player for practicing guitar and bass. It runs entirely
 
 From a release zip, unzip it and run the installer. From a clone of this repository:
 
-    git clone https://github.com/YOUR-USERNAME/ongaku-renshuu.git
-    cd ongaku-renshuu
+    git clone https://github.com/baconcraze/ongakurenshuu.git
+    cd ongakurenshuu
     ./install.sh
 
 This copies Ongaku Renshuu to ~/.local/share/ongaku-renshuu, adds an `ongaku` command in ~/.local/bin, and puts Ongaku Renshuu in your application menu. It then asks whether to set up Ollama for offline image import. No root needed; it asks for sudo only when installing packages.
@@ -21,10 +21,6 @@ Options:
     ~/.local/share/ongaku-renshuu/install.sh --uninstall
 
 Running the installer again updates an existing install. Your saved songs are kept.
-
-## Coming from Fretline
-
-Ongaku Renshuu used to be called Fretline. Running `./install.sh` moves an existing Fretline install over: your saved songs, settings, and downloaded SoundFonts carry across, and the old `fretline` commands and menu entry are removed.
 
 ## Update
 
@@ -54,6 +50,27 @@ It backs up the current version (the last 3 are kept), swaps in the new files, a
     ongaku --status
 
 Ongaku Renshuu runs on http://127.0.0.1:8765. Your library is stored in the browser for that address, so if you change the port with ONGAKU_PORT, you start with an empty library.
+
+## Piano and sheet music
+
+Press **Sheet music** in the bottom bar (or N) to see any guitar or bass tab as standard notation, with the cursor following along. Guitar is written an octave up with the usual "8" under the treble clef, as guitar music normally is.
+
+Piano songs are written as note text instead of tab: Library, then **New piano song**, or choose "Piano or melody" as the Type in the editor. They always show as a grand staff. A short example:
+
+    % Right hand melody, left hand chords
+    RH: E4/4 E4 F4 G4 | G4 F4 E4 D4 |
+    LH: [C3 G3]/2 [C3 G3] | [G2 D3]/2 [G2 B2] |
+
+- One line per hand or voice, starting with a name and a colon. Names starting with L go on the bass staff, names starting with R on the treble staff, and anything else goes wherever its notes sit.
+- Each line holds whole bars, ended with `|`.
+- Notes are a letter, an optional `#` or `b`, and an octave number: `C4` is middle C, `F#3`, `Bb5`.
+- Chords go in brackets, `[C4 E4 G4]`, and `r` is a rest.
+- Lengths go after a slash: `/1` whole, `/2` half, `/4` quarter, `/8`, `/16`, `/32`. Add `.` for dotted (`/4.`) or `t` for a triplet (`/8t`). A length carries on until you change it.
+- `~` ties a note into the next one (`C4~` or `[C4~ E4]`). Lines starting with `%` are comments.
+
+When the instrument is a piano (Auto picks one for piano songs, or choose a piano under **Sound**), a piano keyboard appears above the controls. Keys light up as notes play (gold for the right hand, blue for the left), and you can click keys to hear them.
+
+Guitar Pro files with piano or other non-guitar tracks now import those tracks too, written out as note text.
 
 ## Sound
 

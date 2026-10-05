@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.6.0">
+<meta name="ongaku-renshuu-version" content="1.7.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -74,7 +74,7 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
 .band{fill:transparent;transition:fill .15s}
 .band.on{fill:var(--band)}
 .mn{cursor:pointer}
-.mn rect{fill:transparent}
+.mn rect{fill:transparent;stroke:none}
 .mn text{font:500 11px var(--ui);fill:var(--ink-dim)}
 .mn:hover text{fill:var(--ink);text-decoration:underline}
 .mn.on text{fill:var(--ink);font-weight:600}
@@ -179,6 +179,26 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
 .vhelp{font-size:12.5px;color:var(--wood-dim);margin:0;max-width:70ch}
 .chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--wood-ink) !important}
 @media (max-width:760px){.video{flex-direction:column;padding:8px 12px}.vplayer{width:100%}}
+.nrow{margin:0 0 6px;overflow:visible}
+svg.notation{display:block;overflow:visible}
+svg.notation .vf-vfscore{fill:var(--ink);stroke:var(--ink)}
+svg.notation .vf-vfscore [fill]:not([fill="none"]){fill:var(--ink)}
+svg.notation .vf-vfscore [stroke]:not([stroke="none"]){stroke:var(--ink)}
+svg.notation .vf-vfscore .vf-stave,svg.notation .vf-vfscore .vf-stave [fill]:not([fill="none"]){fill:var(--line)}
+svg.notation .vf-vfscore .vf-stave [stroke]:not([stroke="none"]){stroke:var(--line)}
+svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [fill]:not([fill="none"]){fill:var(--hit)}
+svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke="none"]){stroke:var(--hit)}
+.piano{background:var(--wood);border-top:1px solid var(--wood-line);padding:8px 12px 0;overflow-x:auto;overflow-y:hidden;flex:0 0 auto;-webkit-overflow-scrolling:touch}
+.keys{position:relative;height:clamp(70px,11vh,110px);--kw:max(15px,calc((100vw - 26px) / 52));--bw:calc(var(--kw) * .6);width:calc(var(--kw) * 52);margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none}
+.wk,.bk{position:absolute;top:0;cursor:pointer}
+.wk{width:calc(var(--kw) - 1px);height:100%;background:#f7f4ef;border-radius:0 0 4px 4px;box-shadow:inset 0 -4px 0 #d8d0c4}
+.bk{width:var(--bw);height:62%;background:linear-gradient(#2b221d,#120d0b);border-radius:0 0 3px 3px;z-index:1;box-shadow:0 2px 2px rgba(0,0,0,.35)}
+.wk span{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:9px;font-weight:600;color:#8e8378;pointer-events:none}
+.wk.on{background:var(--brass-light);box-shadow:inset 0 -4px 0 var(--brass)}
+.bk.on{background:linear-gradient(var(--brass),var(--brass-dark))}
+.wk.on.lh{background:#9cc8ea;box-shadow:inset 0 -4px 0 #5f9ccd}
+.bk.on.lh{background:linear-gradient(#5f9ccd,#2f6c9c)}
+.wk.press{background:#e4ddd2}.bk.press{background:#4a3c33}
 .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);
   padding:8px 14px;border-radius:6px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
 .toast.show{opacity:1}
@@ -215,6 +235,7 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
   <div id="score" class="score"><div id="cursor" class="cursor" hidden></div></div>
 </main>
 
+<div id="piano" class="piano" hidden aria-label="Piano keyboard. Keys light up as notes play; click a key to hear it."></div>
 <footer class="transport">
   <div class="tgroup">
     <button id="btnRestart" class="ibtn" aria-label="Back to start" title="Back to start (Home)">
@@ -237,6 +258,7 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
     <button class="tog" id="togCount" aria-pressed="false">Count-in</button>
     <button class="tog" id="togNotes" aria-pressed="true" title="Mute the tab to play along with the metronome">Notes</button>
     <button class="tog" id="togFollow" aria-pressed="true">Follow</button>
+    <button class="tog" id="togView" aria-pressed="false" title="Switch between tab and sheet music (N)">Sheet music</button>
     <button class="tog" id="btnSound" aria-pressed="false" title="Choose the instrument sound">Sound</button>
     <button class="tog" id="togVideo" aria-pressed="false" title="Play along with a YouTube video (V)">Video</button>
     <span class="zoom">
@@ -260,7 +282,8 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
   <section id="paneLib" class="pane" role="tabpanel">
     <ul id="libList" class="lib"></ul>
     <div class="row-btns">
-      <button class="btn primary" id="btnNew">New song</button>
+      <button class="btn primary" id="btnNew">New tab</button>
+      <button class="btn" id="btnNewPiano">New piano song</button>
       <button class="btn" id="btnImg">Import from image</button>
       <label class="btn" tabindex="0">Import file<input type="file" id="fileIn" accept=".gp,.gp3,.gp4,.gp5,.gpx,.txt,.tab,text/plain" class="sr"></label>
     </div>
@@ -307,13 +330,15 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
   <section id="paneEdit" class="pane" role="tabpanel" hidden>
     <label class="f">Title<input id="fTitle" autocomplete="off"></label>
     <label class="f">Artist or source<input id="fArtist" autocomplete="off"></label>
+    <label class="f">Type<select id="fKind"><option value="tab">Guitar or bass tab</option><option value="notes">Piano or melody (note text)</option></select></label>
     <div class="f2">
       <label class="f">Tempo (BPM)<input id="fBpm" type="number" min="20" max="320" step="0.01"></label>
-      <label class="f">Columns per beat<select id="fCpb"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option><option>12</option><option>16</option><option>24</option></select></label>
+      <label class="f" id="fCpbWrap">Columns per beat<select id="fCpb"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option><option>12</option><option>16</option><option>24</option></select></label>
     </div>
-    <label class="f">Tuning<select id="fTuning"></select></label>
-    <label class="f">Tab<textarea id="fTab" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off"></textarea></label>
-    <p class="help">Paste ASCII tab, one line per string with the highest string on top. Every column is one time slot, and "Columns per beat" sets how many columns make a beat. Mark bars with |. Supported marks: frets 0 to 24, x for muted notes, and h, p, /, \, b, ~ as technique hints. The sheet updates as you type.</p>
+    <label class="f" id="fTuningWrap">Tuning<select id="fTuning"></select></label>
+    <label class="f"><span id="fTabLabel">Tab</span><textarea id="fTab" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off"></textarea></label>
+    <p class="help" id="helpNotes" hidden>Write one line per hand or voice, starting with RH: or LH: (any name works; names starting with L go on the bass staff). End each bar with |. Notes look like C4, F#3 or Bb5 (C4 is middle C); chords go in brackets like [C4 E4 G4]; r is a rest. Add a length after a slash: /1 whole, /2 half, /4 quarter, /8, /16, /32, a dot for dotted (/4.) and t for triplets (/8t). A length carries on until you change it. Tie into the next note with ~ (C4~ or [C4~ E4]). Comments start with %.</p>
+    <p class="help" id="helpTab">Paste ASCII tab, one line per string with the highest string on top. Every column is one time slot, and "Columns per beat" sets how many columns make a beat. Mark bars with |. Supported marks: frets 0 to 24, x for muted notes, and h, p, /, \, b, ~ as technique hints. The sheet updates as you type.</p>
     <p id="warn" class="warn" role="status"></p>
     <div class="row-btns">
       <button class="btn primary" id="btnSave">Save to library</button>
@@ -332,13 +357,6 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
-// Carry saved songs and settings over from the app's old name (Fretline); same address, so same storage.
-try{
-  for(const k of ['library', 'settings', 'current']){
-    const old = localStorage.getItem('fretline.' + k);
-    if(old !== null && localStorage.getItem('ongaku.' + k) === null) localStorage.setItem('ongaku.' + k, old);
-  }
-}catch(e){}
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---------- Tunings (highest string first, MIDI numbers) ---------- */
@@ -392,6 +410,12 @@ G|--2-------2---2-|--2-------2---2-|--0-------0---0-|2---------------|
 D|----------------|3---------------|----------------|2---------------|
 A|0---------------|----------------|3---------------|0---------------|
 E|----------------|----------------|----------------|----------------|`},
+{ id:'demo-piano', demo:true, kind:'notes', title:'Ode to Joy (piano)', artist:'Ludwig van Beethoven (public domain)', bpm:96, cpb:4, tuning:null,
+tab:`% Melody in the right hand, simple chords in the left
+RH: E4/4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | E4/4. D4/8 D4/2 |
+RH: E4/4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | D4/4. C4/8 C4/2 |
+LH: [C3 G3]/2 [C3 G3] | [G2 D3]/2 [G2 B2] | [A2 E3]/2 [C3 G3] | [G2 D3]/2 [G2 D3] |
+LH: [C3 G3]/2 [C3 G3] | [G2 D3]/2 [G2 B2] | [A2 E3]/2 [C3 G3] | [G2 D3]/2 [C3 G3] |`},
 { id:'demo-bass', demo:true, title:'Walking bass in G', artist:'Ongaku Renshuu demo (CC0)', bpm:110, cpb:2, tuning:'bass4',
 tab:`G|--------|--------|--------|--------|
 D|------0-|------0-|----0-2-|----0---|
@@ -401,7 +425,7 @@ E|3-------|3-------|--------|------3-|`}
 
 /* ---------- State ---------- */
 let library = store.get('ongaku.library', []);
-let settings = Object.assign({speed:100, metro:false, countIn:false, follow:true, notes:true, zoom:1, reader:'ollama', olUrl:'http://localhost:11434', olModel:'qwen2.5vl:7b', apiKey:'', apiModel:'claude-sonnet-5-5', sndEngine:'sf', sndFont:'', sndInst:'auto', sndVerb:20, videoNotes:false, videoOpen:false}, store.get('ongaku.settings', {}));
+let settings = Object.assign({speed:100, metro:false, countIn:false, follow:true, notes:true, zoom:1, reader:'ollama', olUrl:'http://localhost:11434', olModel:'qwen2.5vl:7b', apiKey:'', apiModel:'claude-sonnet-5-5', sndEngine:'sf', sndFont:'', sndInst:'auto', sndVerb:20, videoNotes:false, videoOpen:false, view:'tab'}, store.get('ongaku.settings', {}));
 const saveSettings = () => store.set('ongaku.settings', settings);
 let song = null, tuning = TUNINGS.standard.notes;
 let parsed = {steps:[], measures:[], warnings:[]};
@@ -476,10 +500,163 @@ function parseTab(text, n){
   return {steps, measures, warnings};
 }
 
+/* ---------- Note text (piano and melody parts) ----------
+   One line per voice, labelled RH:, LH: (or any name). Bars end with |, and a line always ends a bar.
+   Notes: C4, F#3, Bb5 (C4 is middle C). Chords: [C4 E4 G4] or C4+E4+G4. Rest: r.
+   Length after a slash: /1 /2 /4 /8 /16 /32 /64, a dot for dotted (/4.), t for triplets (/8t).
+   A length carries on until you change it. Tie into the next note with ~ (C4~ or [C4~ E4]). */
+const NOTE_U = 96;
+const DUR_U = {'1':384, '2':192, '4':96, '8':48, '16':24, '32':12, '64':6};
+const PCLASS = {c:0, d:2, e:4, f:5, g:7, a:9, b:11};
+const SHARP_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const midiName = m => SHARP_NAMES[m % 12] + (Math.floor(m / 12) - 1);
+function parsePitch(tok){
+  const m = tok.match(/^([A-Ga-g])(##|bb|#|b|x)?(-?\d)(~)?$/);
+  if(!m) return null;
+  const acc = m[2] || '';
+  const midi = (+m[3] + 1) * 12 + PCLASS[m[1].toLowerCase()] + (acc === '#' ? 1 : acc === '##' || acc === 'x' ? 2 : acc === 'b' ? -1 : acc === 'bb' ? -2 : 0);
+  return midi >= 0 && midi <= 127 ? {midi, tie:!!m[4]} : null;
+}
+const gcd = (a, b) => { a = Math.abs(a); b = Math.abs(b); while(b){ [a, b] = [b, a % b]; } return a; };
+function staffForLabel(label, events){
+  if(/^l/i.test(label)) return 'bass';
+  if(/^r/i.test(label)) return 'treble';
+  let sum = 0, n = 0;
+  for(const bar of events) for(const e of bar) for(const p of e.pitches){ sum += p.midi; n++; }
+  return !n || sum / n >= 59 ? 'treble' : 'bass';
+}
+function parseNotes(text){
+  const warnings = [], voices = new Map();
+  const bad = new Set();
+  for(const raw of String(text || '').split(/\r?\n/)){
+    let line = raw.replace(/(%|\/\/).*$/, '').trim();
+    if(!line) continue;
+    let label = 'RH';
+    const lm = line.match(/^([A-Za-z][A-Za-z0-9_]*)\s*:\s*/);
+    if(lm){ label = lm[1].toUpperCase(); line = line.slice(lm[0].length); }
+    if(!voices.has(label)) voices.set(label, {bars:[], cur:[], dur:96});
+    const v = voices.get(label);
+    line = line.replace(/\[([^\]]*)\]/g, (_, inner) => inner.trim().split(/\s+/).join('+')).replace(/\|+\]?/g, ' | ');
+    for(const tok of line.split(/\s+/).filter(Boolean)){
+      if(tok === '|'){ if(v.cur.length) v.bars.push(v.cur); v.cur = []; continue; }
+      const slash = tok.lastIndexOf('/');
+      let head = tok, durTxt = '', tieAll = false;
+      if(slash > 0){ head = tok.slice(0, slash); durTxt = tok.slice(slash + 1); }
+      if(durTxt.endsWith('~')){ durTxt = durTxt.slice(0, -1); tieAll = true; }
+      else if(!durTxt && head.endsWith('~') && head.includes('+')){ head = head.slice(0, -1); tieAll = true; }
+      if(durTxt){
+        const dm = durTxt.match(/^(1|2|4|8|16|32|64)(\.{0,2})(t?)$/);
+        if(!dm){ bad.add(tok); continue; }
+        let u = DUR_U[dm[1]];
+        if(dm[2] === '.') u *= 1.5; else if(dm[2] === '..') u *= 1.75;
+        if(dm[3]) u = u * 2 / 3;
+        if(!Number.isInteger(u)){ bad.add(tok); continue; }
+        v.dur = u;
+      }
+      if(/^[rz]$/i.test(head)){ v.cur.push({u:v.dur, pitches:[]}); continue; }
+      const pitches = head.split('+').map(parsePitch);
+      if(!pitches.length || pitches.some(p => !p)){ bad.add(tok); continue; }
+      if(tieAll) pitches.forEach(p => p.tie = true);
+      v.cur.push({u:v.dur, pitches});
+    }
+    if(v.cur.length){ v.bars.push(v.cur); v.cur = []; }
+  }
+  if(bad.size) warnings.push(`Could not read: ${[...bad].slice(0, 6).join(', ')}${bad.size > 6 ? ' and more' : ''}.`);
+  const labels = [...voices.keys()];
+  const nBars = Math.max(0, ...labels.map(l => voices.get(l).bars.length));
+  const barU = [];
+  let uneven = false;
+  for(let b = 0; b < nBars; b++){
+    const lens = labels.map(l => (voices.get(l).bars[b] || []).reduce((a, e) => a + e.u, 0));
+    barU[b] = Math.max(0, ...lens);
+    if(lens.some(x => x && x !== barU[b])) uneven = true;
+  }
+  if(uneven) warnings.push('Some voices have bars of different lengths; the shorter ones were padded with rests.');
+  let g = NOTE_U;
+  for(const l of labels) for(const bar of voices.get(l).bars) for(const e of bar) g = gcd(g, e.u);
+  for(const u of barU) if(u) g = gcd(g, u);
+  const cpb = NOTE_U / g;
+  const steps = [], measures = [];
+  const vout = labels.map(l => ({label:l, staff:staffForLabel(l, voices.get(l).bars), bars:[]}));
+  let start = 0;
+  for(let b = 0; b < nBars; b++){
+    if(!barU[b]) continue;
+    const len = barU[b] / g, mi = measures.length;
+    measures.push({start, len});
+    for(let i = 0; i < len; i++) steps.push({notes:[], tech:[], m:mi});
+    vout.forEach((vo, vi) => {
+      const v = voices.get(labels[vi]), evs = [];
+      let t = 0;
+      for(const e of (v.bars[b] || [])){
+        const d = e.u / g;
+        evs.push({start:t, dur:d, midis:e.pitches.map(p => p.midi), ties:e.pitches.map(p => p.tie), rest:!e.pitches.length});
+        t += d;
+      }
+      vo.bars[mi] = evs;
+    });
+    start += len;
+  }
+  // playable notes, with ties merged into one longer note
+  for(const vo of vout){
+    let pending = new Map();
+    vo.bars.forEach((evs, mi) => {
+      const base = measures[mi].start;
+      for(const e of evs){
+        const next = new Map();
+        e.midis.forEach((m, i) => {
+          let note = pending.get(m);
+          if(note) note.dur += e.dur;
+          else { note = {midi:m, dur:e.dur, voice:vo.label, staff:vo.staff}; steps[base + e.start].notes.push(note); }
+          if(e.ties[i]) next.set(m, note);
+        });
+        pending = next;
+      }
+    });
+  }
+  return {kind:'notes', steps, measures, warnings, cpb, voices:vout};
+}
+
+/* Write note text from timed events (used by the Guitar Pro importer). Units are 96 per quarter. */
+const DUR_TABLE = [[384,'1'],[288,'2.'],[192,'2'],[144,'4.'],[96,'4'],[72,'8.'],[64,'4t'],[48,'8'],[36,'16.'],[32,'8t'],[24,'16'],[16,'16t'],[12,'32'],[8,'32t'],[6,'64']];
+function splitUnits(u){
+  const out = [];
+  while(u >= 6){ const x = DUR_TABLE.find(d => d[0] <= u); out.push(x); u -= x[0]; }
+  return out;
+}
+function voicesToNoteText(voiceList, barUnits){
+  const lines = [];
+  for(const v of voiceList){
+    const bars = barUnits.map((bu, bi) => {
+      const toks = [];
+      const rest = u => { for(const [, d] of splitUnits(u)) toks.push('r/' + d); };
+      let t = 0;
+      for(const ev of (v.bars[bi] || []).slice().sort((a, b) => a.startU - b.startU)){
+        let s = ev.startU, d = ev.durU;
+        if(s > t){ rest(s - t); t = s; }
+        if(s < t){ d -= t - s; s = t; }
+        d = Math.min(d, bu - t);
+        if(d < 6) continue;
+        const parts = splitUnits(d);
+        parts.forEach(([pu, pd], i) => {
+          const last = i === parts.length - 1;
+          const names = ev.pitches.map(p => midiName(p.midi) + (!last || p.tie ? '~' : ''));
+          toks.push((names.length > 1 ? '[' + names.join(' ') + ']' : names[0]) + '/' + pd);
+        });
+        t += d;
+      }
+      if(bu - t >= 6) rest(bu - t);
+      return toks.join(' ') || 'r/' + (splitUnits(bu)[0] || [0, '1'])[1];
+    });
+    for(let i = 0; i < bars.length; i += 4) lines.push(`${v.label}: ${bars.slice(i, i + 4).join(' | ')} |`);
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
 /* ---------- Audio: Karplus-Strong plucked strings ---------- */
 let ctx = null, master = null, sfBus = null, verbSend = null;
 const bufCache = new Map();
-let voices = [], live = new Set();
+let voices = {}, live = new Set();
 function ensureAudio(){
   if(!ctx){
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -535,10 +712,11 @@ function pluckBuffer(midi){
   bufCache.set(midi, buf);
   return buf;
 }
+const noteMidi = n => n.midi != null ? n.midi : n.dead ? tuning[n.s] + 5 : tuning[n.s] + n.fret;
 function warmBuffers(){
   const seen = new Set();
   for(const st of parsed.steps) for(const n of st.notes){
-    const m = n.dead ? tuning[n.s] + 5 : tuning[n.s] + n.fret;
+    const m = noteMidi(n);
     if(!seen.has(m)){ seen.add(m); pluckBuffer(m); }
   }
 }
@@ -554,17 +732,18 @@ function pluckVoice(n, midi, t){
   return {srcs:[src], release(rt){ try{ g.gain.cancelScheduledValues(rt); g.gain.setTargetAtTime(0, rt, 0.012); src.stop(rt + 0.15); }catch(e){} }};
 }
 function playNote(n, t){
-  const midi = n.dead ? tuning[n.s] + 5 : tuning[n.s] + n.fret;
-  const prev = voices[n.s];
+  const midi = noteMidi(n), key = n.midi != null ? 'm' + midi : 's' + n.s;
+  const prev = voices[key];
   if(prev) prev.release(t, true);
+  const hold = n.dur ? n.dur * stepDur() : 8;
   let v = null;
   if(sound.ready && settings.sndEngine === 'sf'){
-    const vel = n.legato ? 72 : n.dead ? 80 : 92 + Math.floor(Math.random() * 14);
+    const vel = n.legato ? 72 : n.dead ? 80 : n.midi != null ? (n.staff === 'bass' ? 76 : 88) + Math.floor(Math.random() * 10) : 92 + Math.floor(Math.random() * 14);
     v = SF2.noteOn(sound.sf, sound.preset, sound.cache, ctx, sfBus, midi, vel, t);
-    if(v){ if(n.dead) v.release(t + 0.03, true); else v.release(t + 8); }
+    if(v){ if(n.dead) v.release(t + 0.03, true); else v.release(t + hold); }
   }
-  if(!v) v = pluckVoice(n, midi, t);
-  voices[n.s] = v;
+  if(!v){ v = pluckVoice(n, midi, t); if(n.dur) v.release(t + hold + 0.05); }
+  voices[key] = v;
   for(const src of v.srcs){ live.add(src); src.onended = () => live.delete(src); }
 }
 function click(t, accent){
@@ -579,7 +758,7 @@ function click(t, accent){
 }
 function stopVoices(){
   for(const s of live){ try{ s.stop(); }catch(e){} }
-  live.clear(); voices = [];
+  live.clear(); voices = {};
 }
 
 /* ---------- Transport ---------- */
@@ -596,8 +775,8 @@ function scheduleStep(k, t, fromVideo){
     if(off % song.cpb === 0) click(t, off === 0);
   }
   if(!(fromVideo ? settings.videoNotes : settings.notes) || !st.notes.length) return;
-  const notes = st.notes.slice().sort((a, b) => b.s - a.s);
-  const strum = notes.length >= 3 ? 0.009 : 0;
+  const notes = parsed.kind === 'notes' ? st.notes : st.notes.slice().sort((a, b) => b.s - a.s);
+  const strum = parsed.kind !== 'notes' && notes.length >= 3 ? 0.009 : 0;
   notes.forEach((n, i) => playNote(n, t + i * strum));
 }
 function tick(){
@@ -678,20 +857,42 @@ function frame(){
 /* ---------- Rendering ---------- */
 const score = $('#score'), sheet = $('#sheet'), cursorEl = $('#cursor');
 let sw = 12, rowEls = [], rowsMeta = [], stepX = [], stepRow = [], noteGroups = [], bandEls = [], mnEls = [];
-let curStep = -1, curRow = -1, rowH = 0, rowOff = [];
+let curStep = -1, curRow = -1, rowH = 0, rowOff = [], stepNext = [], rowGeo = [];
 const L = {labelW:28, gap:16, top:26, bottom:12};
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 function render(){
   const keep = playing ? curStep : pos;
-  score.querySelectorAll('svg.row,.empty').forEach(e => e.remove());
+  score.querySelectorAll('svg.row,.empty,.nrow').forEach(e => e.remove());
   const {steps, measures} = parsed;
-  rowEls = []; rowsMeta = []; stepX = []; stepRow = []; noteGroups = []; bandEls = []; mnEls = [];
+  rowEls = []; rowsMeta = []; stepX = []; stepRow = []; noteGroups = []; bandEls = []; mnEls = []; stepNext = []; rowGeo = [];
   curStep = -1; curRow = -1;
+  updateViewButton();
   if(!steps.length){
     cursorEl.hidden = true;
-    score.insertAdjacentHTML('beforeend', `<div class="empty"><strong>No tab found in this song.</strong><br>Open <em>Edit tab</em> and paste ASCII tab with one line per string, for example <code>e|---0---3---|</code>.</div>`);
+    score.insertAdjacentHTML('beforeend', parsed.kind === 'notes'
+      ? `<div class="empty"><strong>No notes found in this song.</strong><br>Open <em>Edit tab</em> and write a line like <code>RH: C4/4 D4 E4 F4 |</code>.</div>`
+      : `<div class="empty"><strong>No tab found in this song.</strong><br>Open <em>Edit tab</em> and paste ASCII tab with one line per string, for example <code>e|---0---3---|</code>.</div>`);
     updateBarLabel(); return;
+  }
+  if(showNotation()){
+    if(!(window.Vex && window.Vex.Flow)){
+      cursorEl.hidden = true;
+      score.insertAdjacentHTML('beforeend', '<div class="empty">Loading sheet music...</div>');
+      loadVexFlow().then(() => render()).catch(() => {
+        score.querySelectorAll('.empty').forEach(e => e.remove());
+        score.insertAdjacentHTML('beforeend', '<div class="empty"><strong>Sheet music could not be loaded.</strong><br>The file vendor/vexflow-bravura.js is missing; reinstall or update Ongaku Renshuu.</div>');
+      });
+      return;
+    }
+    cursorEl.hidden = false;
+    const cs0 = getComputedStyle(score);
+    const W0 = Math.max(280, score.clientWidth - parseFloat(cs0.paddingLeft) - parseFloat(cs0.paddingRight));
+    sw = 12;
+    try{ renderNotation(W0); }
+    catch(err){ score.insertAdjacentHTML('beforeend', `<div class="empty"><strong>This song could not be drawn as sheet music.</strong><br>${esc(err && err.message || err)}</div>`); }
+    finishRender(keep);
+    return;
   }
   cursorEl.hidden = false;
   const n = tuning.length;
@@ -724,7 +925,7 @@ function render(){
       h.push(`<g class="mn" data-m="${mi}" role="button" aria-label="Loop bar ${mi + 1}"><rect x="${x0}" y="0" width="${Math.max(24, Math.min(48, m.len * sw))}" height="${L.top - 8}"/><text x="${x0 + 3}" y="${L.top - 12}">${mi + 1}</text></g>`);
       for(let i = 0; i < m.len; i++){
         const k = m.start + i, cx = x0 + sw + i * sw;
-        stepX[k] = cx; stepRow[k] = ri;
+        stepX[k] = cx; stepRow[k] = ri; stepNext[k] = cx + sw;
         const st = steps[k];
         for(const nt of st.notes){
           const y = L.top + nt.s * L.gap, label = nt.dead ? 'x' : String(nt.fret), bw = label.length > 1 ? 15 : 10;
@@ -737,12 +938,17 @@ function render(){
       }
     });
     html += `<svg class="row" data-row="${ri}" width="${r.w + 1}" height="${rowH}" viewBox="0 0 ${r.w + 1} ${rowH}">${h.join('')}</svg>`;
+    rowGeo[ri] = {top:L.top - 12, h:(n - 1) * L.gap + 24};
   });
   score.insertAdjacentHTML('beforeend', html);
+  finishRender(keep);
+}
+function finishRender(keep){
+  const steps = parsed.steps;
   rowEls = [...score.querySelectorAll('svg.row')];
   const sr0 = score.getBoundingClientRect();
   rowOff = rowEls.map(el => { const r = el.getBoundingClientRect(); return {x:r.left - sr0.left + score.scrollLeft, y:r.top - sr0.top + score.scrollTop}; });
-  score.querySelectorAll('g.n').forEach(g => { const k = +g.dataset.k; (noteGroups[k] = noteGroups[k] || []).push(g); });
+  score.querySelectorAll('svg.row [data-k]').forEach(g => { const k = +g.dataset.k; (noteGroups[k] = noteGroups[k] || []).push(g); });
   score.querySelectorAll('rect.band').forEach(r => bandEls[+r.dataset.band] = r);
   score.querySelectorAll('g.mn').forEach(g => mnEls[+g.dataset.m] = g);
   applyLoopVisual();
@@ -753,14 +959,15 @@ function setCursor(k, frac, scroll){
   if(k !== curStep){
     if(curStep >= 0 && noteGroups[curStep]) noteGroups[curStep].forEach(g => g.classList.remove('hit'));
     if(noteGroups[k]) noteGroups[k].forEach(g => g.classList.add('hit'));
-    curStep = k; updateBarLabel();
+    curStep = k; updateBarLabel(); updateKeys(k);
   }
   const ri = stepRow[k], svg = rowEls[ri];
   if(!svg) return;
-  const x = rowOff[ri].x + stepX[k] + frac * sw;
-  const y = rowOff[ri].y + L.top - 12;
-  cursorEl.style.transform = `translate(${x}px, ${y}px)`;
-  cursorEl.style.height = ((tuning.length - 1) * L.gap + 24) + 'px';
+  const nx = stepNext[k] != null ? stepNext[k] : stepX[k] + sw;
+  const x = rowOff[ri].x + stepX[k] + frac * (nx - stepX[k]);
+  const geo = rowGeo[ri] || {top:0, h:40};
+  cursorEl.style.transform = `translate(${x}px, ${rowOff[ri].y + geo.top}px)`;
+  cursorEl.style.height = geo.h + 'px';
   if(ri !== curRow){
     curRow = ri;
     if(settings.follow && (playing || scroll)) scrollToRow(ri);
@@ -835,8 +1042,9 @@ function loadSong(s, keepPos){
   if(typeof videoSongChanged === 'function') videoSongChanged();
 }
 function reparse(keepPos){
-  tuning = tuningNotes(song.tuning);
-  parsed = parseTab(song.tab, tuning.length);
+  if(song.kind === 'notes'){ tuning = []; parsed = parseNotes(song.tab); song.cpb = parsed.cpb || 4; }
+  else { song.kind = 'tab'; tuning = tuningNotes(song.tuning); parsed = parseTab(song.tab, tuning.length); parsed.kind = 'tab'; }
+  computeSounding(); updatePianoVisibility();
   if(!keepPos){ pos = 0; loopA = loopB = null; loopOn = false; loopPicking = false; }
   else { pos = Math.min(pos, Math.max(0, parsed.steps.length - 1)); if(loopB !== null && !parsed.measures[loopB]){ loopA = loopB = null; loopOn = false; } }
   $('#warn').textContent = parsed.warnings.join(' ');
@@ -847,7 +1055,7 @@ function renderLibrary(){
   const ul = $('#libList'); ul.innerHTML = '';
   for(const s of allSongs()){
     const li = document.createElement('li'), b = document.createElement('button');
-    b.innerHTML = `<span class="lt">${esc(s.title || 'Untitled')}${s.demo ? '<span class="tag">Demo</span>' : ''}</span><span class="ls">${esc(s.artist || 'No artist')}, ${esc(tuningName(s.tuning))}${s.tracks && s.tracks.length > 1 ? `, ${s.tracks.length} tracks` : ''}</span>`;
+    b.innerHTML = `<span class="lt">${esc(s.title || 'Untitled')}${s.demo ? '<span class="tag">Demo</span>' : ''}</span><span class="ls">${esc(s.artist || 'No artist')}, ${esc(s.kind === 'notes' ? 'Piano or melody' : tuningName(s.tuning))}${s.tracks && s.tracks.length > 1 ? `, ${s.tracks.length} tracks` : ''}</span>`;
     if(song && s.id === song.id) b.setAttribute('aria-current', 'true');
     b.addEventListener('click', () => { loadSong(s); closeDrawer(); });
     li.appendChild(b); ul.appendChild(li);
@@ -858,9 +1066,17 @@ function fillEditor(){
   $('#fArtist').value = song.artist || '';
   $('#fBpm').value = song.bpm;
   $('#fCpb').value = String(song.cpb);
-  setTuningField(song.tuning);
+  $('#fKind').value = song.kind === 'notes' ? 'notes' : 'tab';
+  if(song.kind !== 'notes') setTuningField(song.tuning);
+  updateKindFields();
   $('#fTab').value = song.tab || '';
   $('#btnDel').hidden = !!song.demo || !library.some(s => s.id === song.id);
+}
+function updateKindFields(){
+  const notes = $('#fKind').value === 'notes';
+  $('#fCpbWrap').hidden = notes; $('#fTuningWrap').hidden = notes;
+  $('#helpNotes').hidden = !notes; $('#helpTab').hidden = notes;
+  $('#fTabLabel').textContent = notes ? 'Notes' : 'Tab';
 }
 let customTuning = null;
 function setTuningField(t){
@@ -881,8 +1097,8 @@ const readTuningField = () => $('#fTuning').value === '__custom' && customTuning
 const sameTuning = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function syncTrack(){
   if(song && Array.isArray(song.tracks) && song.tracks[song.track]){
-    song.tracks[song.track].tab = song.tab;
-    song.tracks[song.track].tuning = song.tuning;
+    const tr = song.tracks[song.track];
+    tr.tab = song.tab; tr.tuning = song.tuning; tr.kind = song.kind; tr.cpb = song.cpb;
   }
 }
 function fillTrackSelect(){
@@ -898,9 +1114,16 @@ function switchTrack(i){
   if(!song.tracks || !song.tracks[i] || i === song.track) return;
   const was = playing; if(playing) pause();
   syncTrack();
+  // keep the same place in the song even if the new track uses a different grid
+  const k0 = curStep >= 0 ? curStep : pos, st0 = parsed.steps[k0], m0 = st0 ? st0.m : 0, ms0 = parsed.measures[m0];
+  const frac0 = ms0 ? (k0 - ms0.start) / ms0.len : 0;
   song.track = i;
-  song.tab = song.tracks[i].tab; song.tuning = song.tracks[i].tuning;
-  reparse(true); fillEditor();
+  const tr = song.tracks[i];
+  song.tab = tr.tab; song.tuning = tr.tuning; song.kind = tr.kind || 'tab'; if(tr.cpb) song.cpb = tr.cpb;
+  reparse(true);
+  const ms1 = parsed.measures[Math.min(m0, parsed.measures.length - 1)];
+  if(ms1){ pos = ms1.start + Math.min(ms1.len - 1, Math.round(frac0 * ms1.len)); setCursor(pos, 0, true); }
+  fillEditor();
   toast(`Track: ${song.tracks[i].name}`);
   if(was) play();
 }
@@ -912,9 +1135,11 @@ function onEdit(){
     song.title = $('#fTitle').value.trim();
     song.artist = $('#fArtist').value.trim();
     song.bpm = Math.max(20, Math.min(320, +$('#fBpm').value || 100));
-    song.cpb = +$('#fCpb').value || 4;
-    const newTuning = readTuningField();
-    const tabChanged = song.tab !== $('#fTab').value || !sameTuning(song.tuning, newTuning);
+    const kind = $('#fKind').value;
+    if(kind === 'tab') song.cpb = +$('#fCpb').value || 4;
+    const newTuning = kind === 'tab' ? readTuningField() : song.tuning;
+    const tabChanged = song.tab !== $('#fTab').value || !sameTuning(song.tuning, newTuning) || kind !== song.kind;
+    song.kind = kind;
     song.tuning = newTuning;
     song.tab = $('#fTab').value;
     syncTrack();
@@ -929,8 +1154,9 @@ function saveSong(){
   const data = {
     id: song.id, title: $('#fTitle').value.trim() || 'Untitled', artist: $('#fArtist').value.trim(),
     bpm: Math.max(20, Math.min(320, +$('#fBpm').value || 100)), cpb: +$('#fCpb').value || 4,
-    tuning: readTuningField(), tab: $('#fTab').value
+    tuning: $('#fKind').value === 'notes' ? null : readTuningField(), tab: $('#fTab').value
   };
+  if($('#fKind').value === 'notes'){ data.kind = 'notes'; data.cpb = song.cpb; }
   if(Array.isArray(song.tracks)){
     song.tab = data.tab; song.tuning = data.tuning; syncTrack();
     data.tracks = song.tracks; data.track = song.track || 0;
@@ -951,6 +1177,11 @@ function deleteSong(){
   library = library.filter(s => s.id !== song.id);
   store.set('ongaku.library', library);
   loadSong(DEMOS[0]); toast('Song deleted');
+}
+function newPianoSong(){
+  loadSong({id:null, unsaved:true, kind:'notes', title:'Untitled', artist:'', bpm:90, cpb:4, tuning:null,
+    tab:'RH: C4/4 D4 E4 F4 | G4/2 G4 |\nLH: C3/2 G2 | C3/1 |'});
+  openDrawer('edit');
 }
 function newSong(){
   const t = 'standard', n = TUNINGS[t].notes;
@@ -1032,6 +1263,8 @@ $('#btnSave').addEventListener('click', saveSong);
 $('#btnDel').addEventListener('click', deleteSong);
 $('#btnCopy').addEventListener('click', copyTab);
 $('#btnNew').addEventListener('click', newSong);
+$('#btnNewPiano').addEventListener('click', newPianoSong);
+$('#fKind').addEventListener('change', () => { updateKindFields(); if($('#fKind').value === 'tab' && song.kind === 'notes') setTuningField('standard'); onEdit(); });
 $('#fileIn').addEventListener('change', e => {
   const f = e.target.files && e.target.files[0]; if(!f) return;
   if(GP_EXT.test(f.name)){ e.target.value = ''; importGuitarPro(f); return; }
@@ -1070,6 +1303,7 @@ document.addEventListener('keydown', e => {
   else if(e.key === 'l' || e.key === 'L') toggleLoop();
   else if(e.key === 'm' || e.key === 'M') $('#togMetro').click();
   else if(e.key === 'v' || e.key === 'V') $('#togVideo').click();
+  else if(e.key === 'n' || e.key === 'N') $('#togView').click();
 });
 let rzTimer = null, lastW = 0;
 new ResizeObserver(() => {
@@ -1098,8 +1332,34 @@ function loadAlphaTab(){
 }
 function scoreToSong(score, fileName){
   const mbs = score.masterBars, barTicks = mbs.map(mb => mb.calculateDuration());
-  const staves = [];
-  score.tracks.forEach(t => t.staves.forEach((st, si) => {
+  const staves = [], pitched = [];
+  score.tracks.forEach((t, ti) => {
+    // Piano and other non-fretted, pitched tracks become note-text tracks
+    if(t.staves.length && t.staves.every(st => !st.isPercussion && (!st.tuning || st.tuning.length === 0))){
+      const voices = [];
+      t.staves.forEach((st, si) => {
+        const nv = Math.max(0, ...st.bars.map(b => b.voices.length));
+        for(let vi = 0; vi < nv; vi++){
+          const bars = []; let any = false;
+          st.bars.forEach((bar, bi) => {
+            if(bi >= mbs.length) return;
+            const v = bar.voices[vi]; const evs = [];
+            if(v) for(const be of v.beats){
+              if(be.isRest || be.graceType || !be.notes.length) continue;
+              evs.push({startU:Math.round(be.playbackStart / 10), durU:Math.round(be.playbackDuration / 10),
+                pitches:be.notes.map(nt => ({midi:nt.realValue, tie:!!nt.isTieOrigin})).filter(p => p.midi >= 0 && p.midi <= 127)});
+            }
+            bars[bi] = evs.filter(e => e.pitches.length); if(bars[bi].length) any = true;
+          });
+          if(!any) continue;
+          const base = t.staves.length > 1 ? (si === 0 ? 'RH' : si === 1 ? 'LH' : 'S' + (si + 1)) : 'V';
+          voices.push({label: base + (t.staves.length > 1 ? (vi ? vi + 1 : '') : vi + 1), bars});
+        }
+      });
+      if(voices.length) pitched.push({order:ti * 10, name:(t.name || '').trim() || `Track ${ti + 1}`, voices});
+      return;
+    }
+    t.staves.forEach((st, si) => {
     if(st.isPercussion || !st.tuning || st.tuning.length < 3 || st.tuning.length > 9) return;
     const n = st.tuning.length, events = [];
     st.bars.forEach((bar, bi) => {
@@ -1118,10 +1378,11 @@ function scoreToSong(score, fileName){
     });
     if(events.length){
       const base = (t.name || '').trim() || `Track ${staves.length + 1}`;
-      staves.push({name: base + (t.staves.length > 1 ? ` (staff ${si + 1})` : ''), tuning: st.tuning.map(x => x + (st.capo || 0)), events});
+      staves.push({order:ti * 10 + si, name: base + (t.staves.length > 1 ? ` (staff ${si + 1})` : ''), tuning: st.tuning.map(x => x + (st.capo || 0)), events});
     }
-  }));
-  if(!staves.length) throw new Error('This file has no guitar or bass tracks with notes.');
+    });
+  });
+  if(!staves.length && !pitched.length) throw new Error('This file has no guitar, bass, piano or other pitched tracks with notes.');
 
   // Use the coarsest grid that places every note exactly and leaves room for two-digit frets.
   let cpb = 24, exact = false;
@@ -1167,12 +1428,20 @@ function scoreToSong(score, fileName){
     barCols.forEach((w, bi) => { if(cur.length && width + w + 1 > 96){ systems.push(cur); cur = []; width = 0; } cur.push(bi); width += w + 1; });
     if(cur.length) systems.push(cur);
     const tab = systems.map(sys => sv.tuning.map((_, i) => names[i].padEnd(lw, ' ') + '|' + sys.map(bi => grid[bi][i].join('')).join('|') + '|').join('\n')).join('\n\n');
-    return {name:sv.name, tuning:matchPreset(sv.tuning), tab};
+    return {order:sv.order, name:sv.name, kind:'tab', cpb, tuning:matchPreset(sv.tuning), tab};
   });
+  const barUnits = barTicks.map(t => Math.round(t / 10));
+  for(const pt of pitched){
+    const tab = voicesToNoteText(pt.voices, barUnits);
+    tracks.push({order:pt.order, name:pt.name, kind:'notes', cpb:parseNotes(tab).cpb, tuning:null, tab});
+  }
+  tracks.sort((a, b) => a.order - b.order);
+  tracks.forEach(t => delete t.order);
   const title = (score.title || '').trim() || fileName.replace(/\.[^.]+$/, '');
+  const first = tracks[0];
   return {
-    song:{id:null, unsaved:true, title, artist:(score.artist || '').trim(), bpm:Math.round(score.tempo) || 120, cpb,
-      tuning:tracks[0].tuning, tab:tracks[0].tab, tracks, track:0},
+    song:{id:null, unsaved:true, title, artist:(score.artist || '').trim(), bpm:Math.round(score.tempo) || 120, cpb:first.cpb, kind:first.kind,
+      tuning:first.tuning, tab:first.tab, tracks, track:0},
     exact, bars:mbs.length
   };
 }
@@ -1780,11 +2049,13 @@ const SF2 = (() => {
 })();
 
 /* ---------- Instrument sound settings ---------- */
+const GM_PIANO = {0:'Acoustic grand piano', 1:'Bright piano', 2:'Electric grand piano', 4:'Electric piano 1', 5:'Electric piano 2', 6:'Harpsichord'};
 const GM_FRETTED = {24:'Nylon guitar', 25:'Steel guitar', 26:'Jazz guitar', 27:'Clean electric guitar', 28:'Muted electric guitar', 29:'Overdriven guitar',
   30:'Distortion guitar', 31:'Guitar harmonics', 32:'Acoustic bass', 33:'Finger bass', 34:'Pick bass', 35:'Fretless bass', 36:'Slap bass 1', 37:'Slap bass 2', 38:'Synth bass 1', 39:'Synth bass 2'};
 const sound = {sf:null, file:null, preset:null, key:null, cache:new Map(), ready:false, busy:null, fonts:null, user:null};
 const setSndStatus = t => { $('#sndStatus').textContent = t; };
 function autoProgram(){
+  if(song && song.kind === 'notes') return 0;
   const t = tuning || [];
   if(t.length === 4 && t.includes(69) && t.includes(67)) return 24;
   return Math.max(...t) < 50 ? 33 : 25;
@@ -1818,11 +2089,16 @@ function currentFont(){
 function fillInstSelect(){
   const sel = $('#sndInst'); sel.innerHTML = '';
   const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
-  add('auto', 'Auto (guitar or bass, from the tuning)');
-  for(const [prog, gm] of Object.entries(GM_FRETTED)){
-    const p = sound.sf && sound.sf.presets.find(x => x.bank === 0 && x.program === +prog);
-    if(sound.sf && !p) continue;
-    add(prog, gm);
+  add('auto', 'Auto (piano for note songs, otherwise guitar or bass from the tuning)');
+  const groups = [['Piano', GM_PIANO], ['Guitar', Object.fromEntries(Object.entries(GM_FRETTED).filter(([k]) => +k < 32))], ['Bass', Object.fromEntries(Object.entries(GM_FRETTED).filter(([k]) => +k >= 32))]];
+  for(const [label, list] of groups){
+    const og = document.createElement('optgroup'); og.label = label;
+    for(const [prog, gm] of Object.entries(list)){
+      const p = sound.sf && sound.sf.presets.find(x => x.bank === 0 && x.program === +prog);
+      if(sound.sf && !p) continue;
+      const o = document.createElement('option'); o.value = prog; o.textContent = gm; og.appendChild(o);
+    }
+    if(og.children.length) sel.appendChild(og);
   }
   sel.value = [...sel.options].some(o => o.value === settings.sndInst) ? settings.sndInst : 'auto';
 }
@@ -1859,7 +2135,7 @@ function ensureSound(){
       const key = file + '|' + preset.bank + ':' + preset.program;
       if(sound.key !== key){ await SF2.prepare(sound.sf, preset, ctx, sound.cache); sound.preset = preset; sound.key = key; }
       sound.ready = true;
-      setSndStatus(`Using ${preset.name || GM_FRETTED[prog] || 'instrument'} from ${file === '__user' ? sound.user.name : file}.`);
+      setSndStatus(`Using ${preset.name || GM_FRETTED[prog] || GM_PIANO[prog] || 'instrument'} from ${file === '__user' ? sound.user.name : file}.`);
       return true;
     }catch(e){
       sound.ready = false;
@@ -1870,7 +2146,7 @@ function ensureSound(){
   return sound.busy;
 }
 function soundChanged(){
-  saveSettings();
+  saveSettings(); updatePianoVisibility();
   const was = playing; if(was) pause();
   sound.ready = false; sound.key = null;
   $('#sndSfOpts').hidden = settings.sndEngine !== 'sf';
@@ -1887,8 +2163,9 @@ $('#sndVerb').addEventListener('input', e => { settings.sndVerb = +e.target.valu
 $('#sndTest').addEventListener('click', async () => {
   ensureAudio();
   const ok = settings.sndEngine === 'sf' ? await ensureSound() : false;
-  const bass = Math.max(...tuning) < 50;
-  const chord = bass ? [28, 40, 47] : [40, 47, 52, 56, 59, 64];
+  const prog = settings.sndInst === 'auto' ? autoProgram() : +settings.sndInst;
+  const bass = prog >= 32 && prog <= 39;
+  const chord = prog < 8 ? [48, 60, 64, 67, 72] : bass ? [28, 40, 47] : [40, 47, 52, 56, 59, 64];
   const t = ctx.currentTime + 0.05;
   chord.forEach((m, i) => {
     const v = ok ? SF2.noteOn(sound.sf, sound.preset, sound.cache, ctx, sfBus, m, 100, t + i * 0.03) : pluckVoice({}, m, t + i * 0.03);
@@ -2114,6 +2391,285 @@ $('#ytMark').addEventListener('click', () => {
 });
 $('#ytNotes').addEventListener('change', e => { settings.videoNotes = e.target.checked; saveSettings(); if(videoMode()) resyncVideo(vtNow()); });
 if(settings.videoOpen) setTimeout(() => setVideoOpen(true), 0);
+
+/* ---------- Sheet music (drawn with VexFlow, MIT) ---------- */
+let vexLoading = null;
+function loadVexFlow(){
+  if(window.Vex && window.Vex.Flow) return Promise.resolve();
+  if(vexLoading) return vexLoading;
+  const tryLoad = src => new Promise((res, rej) => {
+    const el = document.createElement('script'); el.src = src; el.async = true;
+    el.onload = () => (window.Vex && window.Vex.Flow) ? res() : rej(new Error('VexFlow did not load'));
+    el.onerror = () => { el.remove(); rej(new Error('Could not load ' + src)); };
+    document.head.appendChild(el);
+  });
+  vexLoading = tryLoad('vendor/vexflow-bravura.js')
+    .catch(() => tryLoad('https://cdn.jsdelivr.net/npm/vexflow@4.2.5/build/cjs/vexflow-bravura.js'))
+    .catch(err => { vexLoading = null; throw err; });
+  return vexLoading;
+}
+const VF_NAMES = ['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
+const vfKey = (m, dead) => `${VF_NAMES[((m % 12) + 12) % 12]}/${Math.floor(m / 12) - 1}${dead ? '/x2' : ''}`;
+function vfDurParts(steps, cpb){
+  const table = [[4,'w',0],[3,'h',1],[2,'h',0],[1.5,'q',1],[1,'q',0],[.75,'8',1],[.5,'8',0],[.375,'16',1],[.25,'16',0],[.125,'32',0],[.0625,'64',0]]
+    .map(([q, d, dots]) => ({st:q * cpb, d, dots})).filter(x => Number.isInteger(x.st) && x.st > 0);
+  const out = []; let r = steps;
+  while(r > 0){ const x = table.find(t => t.st <= r); if(!x) break; out.push(x); r -= x.st; }
+  if(!out.length && table.length) out.push(table[table.length - 1]);
+  return out;
+}
+// What to draw: staves, clefs, and per-bar events for each voice.
+function notationModel(){
+  const cpb = song.cpb, ms = parsed.measures;
+  if(parsed.kind === 'notes'){
+    const staffs = [...new Set(parsed.voices.map(v => v.staff))];
+    const staves = staffs.includes('treble') && staffs.includes('bass') ? ['treble', 'bass'] : [staffs[0] || 'treble'];
+    return {cpb, staves, octave:0, annot:null, voices:parsed.voices.map(v => ({staff:v.staff, bars:v.bars}))};
+  }
+  const bass = tuning.length && Math.max(...tuning) < 50;
+  const staff = bass ? 'bass' : 'treble';
+  const bars = ms.map(m => {
+    const on = [];
+    for(let k = m.start; k < m.start + m.len; k++) if(parsed.steps[k].notes.length) on.push(k);
+    return on.map((k, i) => {
+      const nts = parsed.steps[k].notes;
+      return {start:k - m.start, dur:(i + 1 < on.length ? on[i + 1] : m.start + m.len) - k,
+        midis:nts.map(n => tuning[n.s] + (n.dead ? 5 : n.fret)), ties:nts.map(() => false), dead:nts.some(n => n.dead), rest:false};
+    });
+  });
+  return {cpb, staves:[staff], octave:12, annot:'8vb', voices:[{staff, bars}]};
+}
+function renderNotation(W){
+  const VF = Vex.Flow, model = notationModel(), ms = parsed.measures, cpb = model.cpb;
+  const grand = model.staves.length === 2;
+  const STAVE_GAP = 100, TOP = 6;
+  const H = grand ? 250 : 150;
+  const timeSig = len => { const q = len / cpb; return Number.isInteger(q) ? `${q}/4` : Number.isInteger(q * 2) ? `${q * 2}/8` : `${Math.round(q * 4)}/16`; };
+  // Build VexFlow voices for one bar
+  const built = ms.map((m, mi) => {
+    const perStaff = {treble:[], bass:[]}, ties = [], starts = [];
+    for(const vd of model.voices){
+      const evs = (vd.bars[mi] || []).slice().sort((a, b) => a.start - b.start);
+      const clef = vd.staff, notes = [];
+      const restKey = clef === 'bass' ? 'd/3' : 'b/4';
+      const pushRest = (s, d) => { for(const p of vfDurParts(d, cpb)){ const n = new VF.StaveNote({keys:[restKey], duration:p.d + (p.dots ? 'd' : '') + 'r', clef}); if(p.dots) VF.Dot.buildAndAttach([n], {all:true}); n.__step = m.start + s; notes.push(n); s += p.st; } };
+      let t = 0, prevLast = null, prevEv = null;
+      for(const ev of evs){
+        if(ev.start > t) pushRest(t, ev.start - t), t = ev.start;
+        let s = Math.max(ev.start, t), d = Math.min(ev.dur - (s - ev.start), m.len - s);
+        if(d <= 0) continue;
+        if(ev.rest){ pushRest(s, d); t = s + d; prevLast = null; continue; }
+        const order = ev.midis.map((x, i) => i).sort((a, b) => ev.midis[a] - ev.midis[b]);
+        const keys = order.map(i => vfKey(ev.midis[i] + model.octave, ev.dead));
+        const parts = vfDurParts(d, cpb);
+        let first = null, prev = null;
+        for(const p of parts){
+          const n = new VF.StaveNote({keys, duration:p.d + (p.dots ? 'd' : ''), clef, auto_stem:true});
+          if(p.dots) VF.Dot.buildAndAttach([n], {all:true});
+          n.__step = m.start + s; n.__onset = !prev; notes.push(n);
+          if(prev) ties.push(new VF.StaveTie({first_note:prev, last_note:n, first_indices:keys.map((_, i) => i), last_indices:keys.map((_, i) => i)}));
+          if(!first) first = n;
+          prev = n; s += p.st;
+        }
+        if(prevLast && prevEv){
+          const idxA = [], idxB = [];
+          prevEv.order.forEach((oi, a) => { if(prevEv.ties[oi]){ const b = order.findIndex(j => ev.midis[j] === prevEv.midis[oi]); if(b >= 0){ idxA.push(a); idxB.push(b); } } });
+          if(idxA.length) ties.push(new VF.StaveTie({first_note:prevLast, last_note:first, first_indices:idxA, last_indices:idxB}));
+        }
+        prevLast = prev; prevEv = {midis:ev.midis, ties:ev.ties, order};
+        t = s;
+      }
+      if(t < m.len) pushRest(t, m.len - t);
+      if(!notes.length) continue;
+      const voice = new VF.Voice({num_beats:4, beat_value:4}).setMode(VF.Voice.Mode.SOFT).addTickables(notes);
+      perStaff[clef].push({voice, notes});
+    }
+    // empty staff of a grand staff still needs a whole-bar rest
+    for(const st of model.staves) if(!perStaff[st].length){
+      const notes = []; let s = 0;
+      for(const p of vfDurParts(m.len, cpb)){ const n = new VF.StaveNote({keys:[st === 'bass' ? 'd/3' : 'b/4'], duration:p.d + (p.dots ? 'd' : '') + 'r', clef:st}); if(p.dots) VF.Dot.buildAndAttach([n], {all:true}); n.__step = m.start + s; notes.push(n); s += p.st; }
+      perStaff[st].push({voice:new VF.Voice({num_beats:4, beat_value:4}).setMode(VF.Voice.Mode.SOFT).addTickables(notes), notes});
+    }
+    for(const st of model.staves) if(perStaff[st].length) VF.Accidental.applyAccidentals(perStaff[st].map(x => x.voice), 'C');
+    const all = model.staves.flatMap(st => perStaff[st].map(x => x.voice));
+    const fmt = new VF.Formatter();
+    for(const st of model.staves) if(perStaff[st].length) fmt.joinVoices(perStaff[st].map(x => x.voice));
+    let minW = 60;
+    try{ minW = fmt.preCalculateMinTotalWidth(all); }catch(e){}
+    const ts = timeSig(m.len);
+    return {perStaff, ties, all, minW, ts};
+  });
+  // Pack bars into rows
+  const headW = (mi, first) => (first ? 46 : 0) + ((mi === 0 || built[mi].ts !== built[mi - 1].ts) ? 30 : 0) + 18;
+  rowsMeta = [];
+  let row = {ms:[], w:0};
+  ms.forEach((m, mi) => {
+    const want = built[mi].minW * 1.35 + 28;
+    const w = want + headW(mi, !row.ms.length);
+    if(row.ms.length && row.w + w > W){ rowsMeta.push(row); row = {ms:[], w:0}; }
+    row.ms.push(mi); row.w += want + headW(mi, row.ms.length === 1);
+  });
+  if(row.ms.length) rowsMeta.push(row);
+  const rowsOut = [];
+  rowsMeta.forEach((r, ri) => {
+    const widths = r.ms.map((mi, j) => built[mi].minW * 1.35 + 28 + headW(mi, j === 0));
+    const total = widths.reduce((a, b) => a + b, 0);
+    const scale = (ri < rowsMeta.length - 1 || total > W * 0.6) ? (W - 2) / total : 1;
+    const holder = document.createElement('div'); holder.className = 'nrow';
+    score.appendChild(holder);
+    const renderer = new VF.Renderer(holder, VF.Renderer.Backends.SVG);
+    renderer.resize(Math.ceil(total * scale) + 2, H);
+    const ctx = renderer.getContext();
+    ctx.openGroup('vfscore');
+    let x = 1;
+    const svg = holder.querySelector('svg');
+    const overlays = [];
+    r.ms.forEach((mi, j) => {
+      const m = ms[mi], b = built[mi], w = widths[j] * scale;
+      const staves = {};
+      model.staves.forEach((st, si) => {
+        const sv = new VF.Stave(x, TOP + si * STAVE_GAP, w);
+        if(j === 0) sv.addClef(st, 'default', model.annot || undefined);
+        if(mi === 0 || b.ts !== built[mi - 1].ts) sv.addTimeSignature(b.ts);
+        if(mi === ms.length - 1) sv.setEndBarType(VF.Barline.type.END);
+        sv.setContext(ctx).draw();
+        staves[st] = sv;
+      });
+      if(grand){
+        const tsv = staves.treble, bsv = staves.bass;
+        if(j === 0){ new VF.StaveConnector(tsv, bsv).setType('brace').setContext(ctx).draw(); new VF.StaveConnector(tsv, bsv).setType('singleLeft').setContext(ctx).draw(); }
+        new VF.StaveConnector(tsv, bsv).setType(mi === ms.length - 1 ? 'boldDoubleRight' : 'singleRight').setContext(ctx).draw();
+      }
+      const ref = staves[model.staves[0]];
+      const noteW = Math.max(20, ref.getNoteEndX() - ref.getNoteStartX() - 8);
+      const fmt = new VF.Formatter();
+      for(const st of model.staves) if(b.perStaff[st].length) fmt.joinVoices(b.perStaff[st].map(v => v.voice));
+      try{ fmt.format(b.all, noteW); }catch(e){}
+      const anchors = [{step:m.start, x:ref.getNoteStartX()}];
+      for(const st of model.staves) for(const {voice, notes} of b.perStaff[st]){
+        try{
+          const beams = VF.Beam.generateBeams(notes.filter(n => !n.isRest()), {maintain_stem_directions:false});
+          voice.draw(ctx, staves[st]);
+          beams.forEach(bm => bm.setContext(ctx).draw());
+        }catch(e){}
+        for(const n of notes){
+          let nx = null; try{ nx = n.getAbsoluteX() + 6; }catch(e){}
+          if(nx !== null) anchors.push({step:n.__step, x:nx});
+          if(!n.isRest() && n.__onset){ const el = n.getSVGElement && n.getSVGElement(); if(el){ el.dataset.k = n.__step; } }
+        }
+      }
+      b.ties.forEach(t => { try{ t.setContext(ctx).draw(); }catch(e){} });
+      const endX = ref.getNoteEndX();
+      anchors.push({step:m.start + m.len, x:endX});
+      anchors.sort((p, q) => p.step - q.step || p.x - q.x);
+      const pts = [];
+      for(const a of anchors) if(!pts.length || a.step > pts[pts.length - 1].step) pts.push(a);
+      for(let k = m.start; k < m.start + m.len; k++){
+        let i = 0; while(i < pts.length - 2 && pts[i + 1].step <= k) i++;
+        const a = pts[i], c = pts[i + 1];
+        const xk = c.step === a.step ? a.x : a.x + (c.x - a.x) * (k - a.step) / (c.step - a.step);
+        stepX[k] = xk; stepRow[k] = ri;
+      }
+      for(let k = m.start; k < m.start + m.len; k++) stepNext[k] = k + 1 < m.start + m.len ? stepX[k + 1] : endX;
+      overlays.push({mi, x0:x, w, top:TOP + 40, bottom:TOP + (model.staves.length - 1) * STAVE_GAP + 80});
+      x += w;
+    });
+    ctx.closeGroup();
+    const NS = 'http://www.w3.org/2000/svg';
+    svg.classList.add('row', 'notation'); svg.dataset.row = ri;
+    for(const o of overlays){
+      const band = document.createElementNS(NS, 'rect');
+      band.setAttribute('class', 'band'); band.dataset.band = o.mi;
+      band.setAttribute('x', o.x0); band.setAttribute('y', o.top - 10); band.setAttribute('width', o.w); band.setAttribute('height', o.bottom - o.top + 20);
+      svg.insertBefore(band, svg.firstChild);
+      const g = document.createElementNS(NS, 'g');
+      g.setAttribute('class', 'mn'); g.dataset.m = o.mi; g.setAttribute('role', 'button'); g.setAttribute('aria-label', `Loop bar ${o.mi + 1}`);
+      g.innerHTML = `<rect x="${o.x0}" y="0" width="40" height="${o.top - 12}"/><text x="${o.x0 + 3}" y="${o.top - 16}">${o.mi + 1}</text>`;
+      svg.appendChild(g);
+    }
+    rowGeo[ri] = {top:TOP + 28, h:(model.staves.length - 1) * STAVE_GAP + 64};
+    rowsOut.push(svg);
+  });
+  rowH = H;
+  return rowsOut;
+}
+
+/* ---------- Tab or sheet music view ---------- */
+const showNotation = () => parsed.kind === 'notes' || settings.view === 'notation';
+function updateViewButton(){
+  const b = $('#togView');
+  b.setAttribute('aria-pressed', showNotation() ? 'true' : 'false');
+  b.disabled = parsed.kind === 'notes';
+  b.title = parsed.kind === 'notes' ? 'Piano and melody songs are shown as sheet music' : 'Switch between tab and sheet music (N)';
+}
+$('#togView').addEventListener('click', () => {
+  if(parsed.kind === 'notes') return;
+  settings.view = settings.view === 'notation' ? 'tab' : 'notation'; saveSettings(); render();
+});
+
+/* ---------- Piano keyboard ---------- */
+const PIANO_LO = 21, PIANO_HI = 108;
+const isBlackKey = m => [1, 3, 6, 8, 10].includes(m % 12);
+const pianoEl = $('#piano');
+let keyEls = {}, litKeys = new Map(), sounding = [];
+function buildPiano(){
+  let html = '<div class="keys">', wi = 0;
+  for(let m = PIANO_LO; m <= PIANO_HI; m++){
+    if(isBlackKey(m)) html += `<div class="bk" data-midi="${m}" style="left:calc(${wi} * var(--kw) - var(--bw) / 2)" title="${midiName(m)}"></div>`;
+    else { html += `<div class="wk" data-midi="${m}" style="left:calc(${wi} * var(--kw))" title="${midiName(m)}">${m % 12 === 0 ? `<span>C${m / 12 - 1}</span>` : ''}</div>`; wi++; }
+  }
+  pianoEl.innerHTML = html + '</div>';
+  keyEls = {}; pianoEl.querySelectorAll('[data-midi]').forEach(el => keyEls[+el.dataset.midi] = el);
+  litKeys = new Map();
+  requestAnimationFrame(() => { const c4 = keyEls[60]; if(c4 && pianoEl.scrollWidth > pianoEl.clientWidth) pianoEl.scrollLeft = c4.offsetLeft - pianoEl.clientWidth / 2; });
+}
+function pianoWanted(){
+  const prog = settings.sndInst === 'auto' ? autoProgram() : +settings.sndInst;
+  return prog >= 0 && prog <= 7;
+}
+function updatePianoVisibility(){
+  const show = !!song && pianoWanted();
+  if(show && !pianoEl.firstChild) buildPiano();
+  if(pianoEl.hidden === show){ pianoEl.hidden = !show; requestAnimationFrame(() => { if(rowEls.length) render(); }); }
+  if(show) updateKeys(curStep >= 0 ? curStep : pos);
+}
+function computeSounding(){
+  const steps = parsed.steps, n = steps.length;
+  sounding = Array.from({length:n}, () => []);
+  if(parsed.kind === 'notes'){
+    steps.forEach((st, k) => st.notes.forEach(nt => { for(let j = k; j < Math.min(n, k + nt.dur); j++) sounding[j].push({midi:nt.midi, lh:nt.staff === 'bass'}); }));
+    return;
+  }
+  const cap = (song.cpb || 4) * 4, nextOn = {};
+  for(let k = n - 1; k >= 0; k--){
+    for(const nt of steps[k].notes){
+      if(!nt.dead){ const end = Math.min(n, nextOn[nt.s] != null ? nextOn[nt.s] : n, k + cap); for(let j = k; j < end; j++) sounding[j].push({midi:noteMidi(nt), lh:false}); }
+    }
+    for(const nt of steps[k].notes) nextOn[nt.s] = k;
+  }
+}
+function updateKeys(k){
+  if(pianoEl.hidden || !pianoEl.firstChild) return;
+  const want = new Map();
+  for(const s of (sounding[k] || [])) if(!want.has(s.midi) || s.lh === false) want.set(s.midi, s.lh);
+  for(const [m] of litKeys) if(!want.has(m) && keyEls[m]) keyEls[m].classList.remove('on', 'lh');
+  for(const [m, lh] of want){ const el = keyEls[m]; if(el){ el.classList.add('on'); el.classList.toggle('lh', !!lh); } }
+  litKeys = want;
+}
+pianoEl.addEventListener('pointerdown', async e => {
+  const key = e.target.closest('[data-midi]'); if(!key) return;
+  e.preventDefault();
+  ensureAudio();
+  const midi = +key.dataset.midi;
+  const ok = settings.sndEngine === 'sf' ? (sound.ready || await ensureSound()) : false;
+  const t = ctx.currentTime + 0.005;
+  const v = ok ? SF2.noteOn(sound.sf, sound.preset, sound.cache, ctx, sfBus, midi, 96, t) : pluckVoice({}, midi, t);
+  if(!v) return;
+  for(const src of v.srcs){ live.add(src); src.onended = () => live.delete(src); }
+  key.classList.add('press');
+  const up = () => { try{ v.release(ctx.currentTime); }catch(err){} key.classList.remove('press'); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+  window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+});
 
 /* ---------- Start ---------- */
 updatePlayBtn();
