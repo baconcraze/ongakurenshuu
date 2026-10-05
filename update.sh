@@ -38,10 +38,7 @@ while (( $# )); do
 done
 
 [[ $EUID -ne 0 ]] || die "Run this as your normal user, not root."
-if [[ ! -f $APP_DIR/index.html ]]; then
-  [[ -f $DATA/fretline/fretline.html ]] && die "Found an install under its old name, Fretline. Run ./install.sh from the new download once; it moves everything over."
-  die "Ongaku Renshuu isn't installed in $APP_DIR. Run install.sh from the download first."
-fi
+[[ -f $APP_DIR/index.html ]] || die "Ongaku Renshuu isn't installed in $APP_DIR. Run install.sh from the download first."
 
 server_running() { [[ -x $APP_DIR/ongaku-renshuu.sh ]] && "$APP_DIR/ongaku-renshuu.sh" --status 2>/dev/null | grep -q '^Running'; }
 stop_server()    { [[ -x $APP_DIR/ongaku-renshuu.sh ]] && "$APP_DIR/ongaku-renshuu.sh" --stop >/dev/null 2>&1 || true; }

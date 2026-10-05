@@ -101,21 +101,6 @@ ln -sfn "$APP_DIR/ongaku-renshuu.sh" "$BIN_DIR/ongaku"
 ln -sfn "$APP_DIR/update.sh" "$BIN_DIR/ongaku-update"
 ok "Files installed; commands ongaku and ongaku-update linked in $BIN_DIR"
 
-# ---------- Move over from Fretline (this app's old name) ----------
-OLD_DIR="$DATA/fretline"
-if [[ -f $OLD_DIR/fretline.html ]]; then
-  say "Moving your Fretline install over to Ongaku Renshuu"
-  [[ -x $OLD_DIR/fretline.sh ]] && "$OLD_DIR/fretline.sh" --stop >/dev/null 2>&1 || true
-  mkdir -p "$APP_DIR/soundfonts"
-  for f in "$OLD_DIR"/soundfonts/*.sf2 "$OLD_DIR"/soundfonts/*.sf3 "$OLD_DIR"/soundfonts/GeneralUser-GS-LICENSE.txt; do
-    [[ -f $f && ! -L $f ]] || continue
-    [[ -e $APP_DIR/soundfonts/$(basename "$f") ]] || mv "$f" "$APP_DIR/soundfonts/"
-  done
-  rm -rf "$OLD_DIR"
-  for l in fretline fretline-update; do [[ -L $BIN_DIR/$l ]] && rm -f "$BIN_DIR/$l"; done
-  rm -f "$DATA/applications/fretline.desktop" "$DATA/icons/hicolor/scalable/apps/fretline.svg"
-  ok "Moved SoundFonts and removed the old Fretline commands and menu entry. Saved songs carry over automatically."
-fi
 
 cat > "$ICON_FILE" <<'SVG'
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -142,7 +127,7 @@ Exec=$APP_DIR/ongaku-renshuu.sh
 Icon=ongaku-renshuu
 Terminal=false
 Categories=AudioVideo;Audio;Music;Education;
-Keywords=guitar;bass;tab;tablature;practice;ongaku;renshuu;fretline;
+Keywords=guitar;bass;tab;tablature;practice;ongaku;renshuu;
 DESK
 refresh_menus
 ok "Added Ongaku Renshuu to your application menu"

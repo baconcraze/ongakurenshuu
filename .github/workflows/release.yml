@@ -24,14 +24,14 @@ jobs:
           fi
           grep -q "name=\"ongaku-renshuu-version\" content=\"$have\"" index.html || { echo "index.html version meta tag is not $have"; exit 1; }
 
-      - name: Check scripts
-        run: bash -n install.sh && bash -n update.sh && bash -n ongaku-renshuu.sh
+      - name: Run checks
+        run: bash tools/check.sh
 
       - name: Build ongaku-renshuu.zip
         run: |
           mkdir -p dist/ongaku-renshuu
           git archive HEAD | tar -x -C dist/ongaku-renshuu
-          rm -rf dist/ongaku-renshuu/.github dist/ongaku-renshuu/.gitignore
+          rm -rf dist/ongaku-renshuu/.github dist/ongaku-renshuu/.gitignore dist/ongaku-renshuu/CLAUDE.md dist/ongaku-renshuu/tools
           chmod 755 dist/ongaku-renshuu/*.sh
           cd dist && zip -qr ongaku-renshuu.zip ongaku-renshuu
 
