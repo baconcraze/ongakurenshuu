@@ -85,6 +85,21 @@ if (( ${#missing[@]} )); then
 fi
 ok "python3, curl and xdg-open found"
 
+# Video imports (karaoke and falling-notes piano videos) also need ffmpeg, numpy and Pillow.
+vmissing=()
+command -v ffmpeg >/dev/null || vmissing+=(ffmpeg)
+python3 -c 'import numpy' 2>/dev/null || vmissing+=(python-numpy)
+python3 -c 'import PIL' 2>/dev/null || vmissing+=(python-pillow)
+if (( ${#vmissing[@]} )); then
+  if command -v pacman >/dev/null && ask "Video imports need ${vmissing[*]}. Install them with pacman now?"; then
+    sudo pacman -S --needed --noconfirm "${vmissing[@]}" || warn "Could not install ${vmissing[*]}; video imports will not work until they are installed."
+  else
+    warn "Video imports need: ${vmissing[*]}. Everything else works without them."
+  fi
+else
+  ok "ffmpeg, numpy and Pillow found (for video imports)"
+fi
+
 # ---------- Install files ----------
 say "Installing Ongaku Renshuu to $APP_DIR"
 [[ -x $APP_DIR/ongaku-renshuu.sh ]] && "$APP_DIR/ongaku-renshuu.sh" --stop >/dev/null 2>&1 || true
@@ -95,6 +110,7 @@ install -m 755 "$SRC/install.sh" "$APP_DIR/install.sh"
 install -m 755 "$SRC/update.sh"  "$APP_DIR/update.sh"
 [[ -f $SRC/VERSION ]] && install -m 644 "$SRC/VERSION" "$APP_DIR/VERSION"
 if [[ -d $SRC/vendor ]]; then rm -rf "$APP_DIR/vendor"; cp -r "$SRC/vendor" "$APP_DIR/vendor"; fi
+if [[ -d $SRC/tools ]]; then rm -rf "$APP_DIR/tools"; cp -r "$SRC/tools" "$APP_DIR/tools"; fi
 if [[ -d $SRC/soundfonts ]]; then mkdir -p "$APP_DIR/soundfonts"; cp -f "$SRC"/soundfonts/*.sf2 "$SRC"/soundfonts/*.txt "$APP_DIR/soundfonts/" 2>/dev/null || true; fi
 [[ -f $SRC/README.md ]] && install -m 644 "$SRC/README.md" "$APP_DIR/README.md"
 ln -sfn "$APP_DIR/ongaku-renshuu.sh" "$BIN_DIR/ongaku"

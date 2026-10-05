@@ -21,6 +21,11 @@ else
   echo "skip node --check (node is not installed)"
 fi
 
+for f in tools/*.py; do
+  if python3 -m py_compile "$f" 2>/dev/null; then echo "ok   python $f"; else echo "FAIL python $f"; fail=1; fi
+done
+find tools -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+
 v_file="$(tr -d '[:space:]' < VERSION)"
 v_meta="$(grep -o 'name="ongaku-renshuu-version" content="[^"]*"' index.html | sed 's/.*content="//; s/"$//')"
 if [[ $v_file == "$v_meta" ]]; then echo "ok   version $v_file"; else echo "FAIL VERSION is $v_file but index.html says $v_meta"; fail=1; fi

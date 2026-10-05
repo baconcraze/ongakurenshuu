@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ongaku Renshuu launcher: serves Ongaku Renshuu on 127.0.0.1 in the background and opens it.
-# Usage: ongaku [--serve | --stop | --status | --get-soundfont | --help]
+# Usage: ongaku [--serve | --stop | --status | --get-soundfont | --karaoke URL | --piano URL | --update-ytdlp | --help]
 set -euo pipefail
 DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PORT="${ONGAKU_PORT:-8765}"   # keep this fixed: your library is saved per address
@@ -8,6 +8,7 @@ URL="http://127.0.0.1:${PORT}/index.html"
 PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/ongaku-renshuu-${PORT}.pid"
 
 SF_DIR="$DIR/soundfonts"
+MEDIA="${ONGAKU_MEDIA:-${XDG_DATA_HOME:-$HOME/.local/share}/ongaku-renshuu-media}"
 GUGS_URL="https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/main/GeneralUser-GS.sf2"
 GUGS_LIC="https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/main/documentation/LICENSE.txt"
 
@@ -52,10 +53,29 @@ case "${1:-}" in
   --status)
     if up; then echo "Running at $URL"; else echo "Not running."; fi; exit 0 ;;
   --get-soundfont) get_soundfont; exit $? ;;
+  --karaoke|--piano)
+    [[ -n ${2:-} ]] || { echo "Usage: ongaku $1 URL_OR_FILE" >&2; exit 1; }
+    tool=karaoke.py; [[ $1 == --piano ]] && tool=pianovideo.py
+    python3 "$DIR/tools/$tool" "$2" --media "$MEDIA" | python3 -c '
+import json, sys
+for line in sys.stdin:
+    try: m = json.loads(line)
+    except ValueError: continue
+    p = m.get("progress"); pct = "" if p is None else f" {int(p*100)}%"
+    print(f"[{m.get(\"stage\")}{pct}] {m.get(\"message\")}", flush=True)'
+    exit "${PIPESTATUS[0]}" ;;
+  --update-ytdlp)
+    mkdir -p "$MEDIA"
+    python3 -m venv "$MEDIA/venv" && "$MEDIA/venv/bin/pip" install -q -U yt-dlp && echo "yt-dlp $("$MEDIA/venv/bin/yt-dlp" --version) is ready."
+    exit $? ;;
   -h|--help)
     echo "Usage: ongaku [--serve | --stop | --status]"
     echo "  --serve          start the server without opening the browser"
     echo "  --get-soundfont  download the GeneralUser GS instrument sounds (about 32 MB)"
+    echo "  --karaoke URL    import a karaoke video with a pitch guide (also works from the app)"
+    echo "  --piano URL      import a falling-notes piano video as a piano song"
+    echo "  --update-ytdlp   install the newest yt-dlp for video downloads"
+    echo "Downloaded videos are kept in $MEDIA"
     echo "Starts Ongaku Renshuu at $URL and opens it in your browser."
     echo "Set ONGAKU_PORT to use a different port (your library is saved per port)."
     exit 0 ;;
@@ -66,7 +86,11 @@ esac
 index_soundfonts
 if ! up; then
   command -v python3 >/dev/null || { echo "Ongaku Renshuu needs python3." >&2; exit 1; }
-  setsid python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIR" >/dev/null 2>&1 </dev/null &
+  if [[ -f $DIR/tools/server.py ]]; then
+    setsid python3 "$DIR/tools/server.py" --port "$PORT" --root "$DIR" --media "$MEDIA" >/dev/null 2>&1 </dev/null &
+  else
+    setsid python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIR" >/dev/null 2>&1 </dev/null &
+  fi
   echo $! > "$PIDFILE"
   for _ in $(seq 30); do up && break; sleep 0.1; done
   if ! up; then
