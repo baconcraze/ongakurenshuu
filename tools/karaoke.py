@@ -450,6 +450,8 @@ def extract_notes(path, dur, procs):
         n.append(int(round((ph - n[2]) / s)))     # semitones, higher number is higher pitch
     info = {'layout': 'scrolling' if model[0] == 'fixed' else 'paged', 'staff': [y0, y1], 'semitone_px': round(s, 2),
             'on_grid': round(q, 3), 'speed': round(speed, 2) if speed else None}
+    info['_model'] = model
+    info['_bars'] = [(n[0], n[1], n[2], n[4]) for n in notes]    # time, end, screen y, semitone
     return [(n[0], n[1], n[4]) for n in notes], info, (y0, y1)
 
 
@@ -477,6 +479,90 @@ def pitch_salience(x, sr, n=8192, hop=1024):
         C[i] = np.bincount(midis % 12, weights=sal, minlength=12)
     C /= C.sum(1, keepdims=True) + 1e-9
     return C, hop / sr
+
+
+SOLFEGE = [('ファ', 5), ('ド', 0), ('レ', 2), ('ミ', 4), ('ソ', 7), ('ラ', 9), ('シ', 11)]
+
+
+def read_label(text):
+    """Turn a solfège label such as 'ファ#' or 'シ♭' into a pitch class."""
+    t = text.strip().replace('＃', '#').replace('♯', '#').replace('♭', 'b')
+    for name, pc in SOLFEGE:
+        if t.startswith(name):
+            rest = t[len(name):].strip()
+            if rest.startswith('#'):
+                pc += 1
+            elif rest.startswith('b') or rest.startswith('フラット'):
+                pc -= 1
+            return pc % 12
+    return None
+
+
+def key_from_labels(path, info, url, model, want=9):
+    """Paged guides (like カラオケ@DIVA) print a note name above each bar. Read a few with a local
+    vision model; when they agree, they give the key exactly."""
+    if info.get('layout') != 'paged':
+        return None
+    try:
+        urllib.request.urlopen(url.rstrip('/') + '/api/tags', timeout=3).read()
+    except Exception:
+        return None
+    from PIL import Image
+    pages = info['_model'][1]
+    sp = info['semitone_px'] * 2
+    bars = [b for b in info['_bars'] if b[1] - b[0] >= 0.25]
+    if len(bars) < 5:
+        return None
+    picks = [bars[i] for i in np.linspace(0, len(bars) - 1, min(want * 2, len(bars))).astype(int)]
+    votes = {}
+    asked = 0
+    for (t, e, y, p) in picks:
+        page = next((pg for pg in pages if pg[0] - 0.1 <= t <= pg[1]), None)
+        if page is None:
+            continue
+        t0, t1, a, b = page
+        x = a + b * t
+        if t1 - t0 < 0.6:
+            continue
+        F = next((F for _, F in frames(path, 1, ss=(t0 + t1) / 2, t=0.5)), None)
+        if F is None:
+            continue
+        ya, yb = int(max(0, y - 3.2 * sp)), int(max(0, y - 0.2 * sp))
+        xa, xb = int(max(0, x - 12)), int(min(W, x + 60))
+        crop = F[ya:yb, xa:xb]
+        if crop.size == 0:
+            continue
+        im = Image.fromarray(crop).resize((crop.shape[1] * 3, crop.shape[0] * 3))
+        buf = io.BytesIO()
+        im.save(buf, 'PNG')
+        prompt = ('This small image is cut from a karaoke pitch guide. It shows a note name written in katakana solfège '
+                  '(ド, レ, ミ, ファ, ソ, ラ or シ), maybe followed by a sharp ♯ or flat ♭ sign. '
+                  'Reply with only that note name, for example ファ♯. If there is no note name, reply none.')
+        body = json.dumps({'model': model, 'stream': False, 'options': {'temperature': 0},
+                           'messages': [{'role': 'user', 'content': prompt, 'images': [base64.b64encode(buf.getvalue()).decode()]}]}).encode()
+        try:
+            req = urllib.request.Request(url.rstrip('/') + '/api/chat', data=body, headers={'Content-Type': 'application/json'})
+            text = (json.loads(urllib.request.urlopen(req, timeout=60).read()).get('message') or {}).get('content', '')
+        except Exception:
+            continue
+        asked += 1
+        pc = read_label(text)
+        if os.environ.get('ONGAKU_DEBUG'):
+            print(json.dumps({'debug': 'label', 't': round(t, 2), 'answer': text.strip()[:20], 'pc': pc, 'semitone': p}, ensure_ascii=False), file=sys.stderr)
+        if pc is not None:
+            k = (pc - p) % 12
+            votes[k] = votes.get(k, 0) + 1
+        say('key', 0.9, 'Reading the note names on the pitch guide')
+        if asked >= want * 2 or (votes and max(votes.values()) >= want):
+            break
+    if not votes:
+        return None
+    ranked = sorted(votes.items(), key=lambda kv: -kv[1])
+    k, n = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else 0
+    if n >= 4 and n >= 2 * second and n >= 0.35 * sum(votes.values()):   # some misreads are normal; the right key clearly leads
+        return k, n, sum(votes.values())
+    return None
 
 
 def fit_key(path, notes):
@@ -769,6 +855,15 @@ def main():
         notes, ninfo, (y0, y1) = extract_notes(path, dur, a.procs)
         say('key', 0.9, 'Finding the key from the audio')
         k, conf = fit_key(path, notes)
+        song['key_source'] = 'audio'
+        lab = key_from_labels(path, ninfo, a.ollama, a.model)
+        if lab:
+            if lab[0] != k:
+                say('key', 0.95, 'The note names on the guide corrected the key')
+            k, conf = lab[0], 9.0
+            song['key_source'] = f'note names ({lab[1]} of {lab[2]} agree)'
+        ninfo.pop('_model', None)
+        ninfo.pop('_bars', None)
         # place the melody in a comfortable octave: middle of the song around D4
         med = float(np.median([p + k for _, _, p in notes]))
         octave = int(round((62 - med) / 12)) * 12

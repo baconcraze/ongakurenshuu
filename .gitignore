@@ -15,3 +15,5 @@ dist/
 *~
 .vscode/
 .idea/
+# Python caches from the video tools
+__pycache__/

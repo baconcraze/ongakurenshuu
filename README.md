@@ -48,6 +48,9 @@ It backs up the current version (the last 3 are kept), swaps in the new files, a
     ongaku           start it and open your browser
     ongaku --stop    stop the background server
     ongaku --status
+    ongaku --karaoke URL     import a karaoke video (also from the app)
+    ongaku --piano URL       make a piano song from a falling-notes video
+    ongaku --update-ytdlp    install the newest yt-dlp for video downloads
 
 Ongaku Renshuu runs on http://127.0.0.1:8765. Your library is stored in the browser for that address, so if you change the port with ONGAKU_PORT, you start with an empty library.
 
@@ -105,6 +108,37 @@ Each song keeps its own video and sync: changing songs switches to that song's v
 
 Tick "Play the tab sound too" to hear Ongaku Renshuu's instrument on top of the recording. This needs an internet connection, and some videos can't be embedded because their owners disallow it. The tab follows a single steady tempo, so live recordings that speed up or slow down will drift a little over long stretches; looping a section and re-syncing that bar works well for practice.
 
+## Library
+
+Search by title, artist or folder, show one instrument (guitar, bass, piano and melody, other), and sort by folder, title, artist or newest. Put a song in a folder with the Folder field in the editor.
+
+## Slap bass
+
+Mark slap and pop notes in bass tab with `T` (thumb slap) and `P` (pop), either right before the fret (`T5`, `P7`) or on a line of letters directly above the staff, lined up with the notes:
+
+      T  T  T P   T P
+    G|----------------|
+    D|--------9-----7-|
+    A|----------------|
+    E|0--0--0-----3---|
+
+Marked notes play with the Slap Bass sounds of the SoundFont (General MIDI 36 and 37) and show their letter above the tab and the sheet music. Guitar Pro files keep their slap and pop marks, and image import asks the model to read them too. Try the "Slap groove in E" demo.
+
+## Karaoke
+
+Press **Karaoke** at the top. Paste a YouTube link to a karaoke video with a pitch guide (音程バー) and press Import, or Import and queue. Ongaku Renshuu downloads the video, reads the pitch bars into notes (scrolling and paged layouts both work), finds the key from the audio, times the lyric lines from their colour wipe, and reads the lyric text with your local Ollama vision model, so nothing is sent to an online service. A song can be sung about a minute after you import it; the lyric text follows in the background. Videos are kept in ~/.local/share/ongaku-renshuu-media.
+
+- **Practice** stays on one song: repeat it, set A and B to repeat a section, or slow it down.
+- **Queue** plays like a karaoke machine: songs play one after another with a short countdown, and the next ones are prepared in the background while you sing.
+- Turn on **Microphone** to see your pitch on the guide and get a score at the end: a grade, how much was on pitch, notes hit and your best streak. Your best score is kept for each song. Use headphones so the microphone hears you, not the music.
+- **Key** shifts the guide if it came out in the wrong key, **Mic delay** lines your singing up with the guide, and you can hide or mute the video or show the lyrics as text.
+
+The pitch guide is read from the picture, so check it against the video the first time; some layouts are read better than others.
+
+## Piano songs from falling-notes videos
+
+In the Library, paste a link to a falling-notes piano video (the Synthesia style, with a keyboard at the bottom) and press **Make a piano song**. Ongaku Renshuu watches which keys light up, splits the hands by colour, checks the octave against the audio, works out the tempo, and writes the song as ABC with the video attached. Press **Video** to play along with the recording, and tick **Mute the video** to hear only Ongaku Renshuu.
+
 ## Importing songs
 
 Library, then "Import file" reads:
@@ -120,7 +154,7 @@ Guitar Pro and MusicXML files are read with alphaTab (MPL-2.0), included in vend
 
 ## Image import
 
-Library, then "Import from image". It reads tab and sheet music: set Instrument to "Piano or melody, sheet music" for piano scores, lead sheets, or any standard notation. Piano grand staves are kept together, each line of music is read whole so the clefs and key signature stay in view, and the result comes out as ABC notation. Choose a reader and a model:
+Library, then "Import from image". Choose one image or several pages; they are read in the order listed, and you can reorder them with the arrows or by dragging. It reads tab and sheet music: set Instrument to "Piano or melody, sheet music" for piano scores, lead sheets, or any standard notation. Piano grand staves are kept together, each line of music is read whole so the clefs and key signature stay in view, and the result comes out as ABC notation. Choose a reader and a model:
 
 - **Ollama** lists the models you've installed and greys out ones that can't read images. Pull more with `ollama pull <name>` and press Refresh list.
 - **Anthropic API** needs a key from console.anthropic.com. The key stays in your browser and requests go straight to Anthropic.
