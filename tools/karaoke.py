@@ -392,6 +392,117 @@ def refine_y(notes, crops, tauf, Y0, sp):
     return notes
 
 
+# ---------------------------------------------------------------- paged guides: bars change colour as the line passes
+def region_frames(path, ss, t, y0, y1, fps=12):
+    hh = y1 - y0
+    cmd = ['ffmpeg', '-loglevel', 'error', '-ss', f'{ss:.3f}', '-i', path, '-t', f'{t:.3f}',
+           '-vf', f'fps={fps},scale={W}:{H},crop={W}:{hh}:0:{y0}', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    n = W * hh * 3
+    out = []
+    i = 0
+    while True:
+        b = p.stdout.read(n)
+        if len(b) < n:
+            break
+        out.append((ss + i / fps, np.frombuffer(b, np.uint8).reshape(hh, W, 3).astype(np.int16)))
+        i += 1
+    p.wait()
+    return out
+
+
+def mask_bars(M, a, b, y0, sp):
+    """Trace bars column by column: a bar continues while its run stays at the same height,
+    and ends at a gap or a jump. Returns (start, end, centre y, height)."""
+    H2, W2 = M.shape
+    cols = []
+    for x in range(W2):
+        col = M[:, x]
+        if not col.any():
+            cols.append([])
+            continue
+        d = np.diff(np.r_[0, col.astype(np.int8), 0])
+        runs = []
+        for s0, e0 in zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]):
+            if runs and s0 - runs[-1][1] <= 4:
+                runs[-1][1] = e0          # hollow bars: join the outline pieces
+            else:
+                runs.append([s0, e0])
+        cols.append([((r0 + r1) / 2, r1 - r0) for r0, r1 in runs if 0.45 * sp <= r1 - r0 <= 2.0 * sp])
+    live, done = [], []
+    for x in range(W2):
+        nxt, used = [], set()
+        for bar in live:
+            m = next((i for i, (yc, h) in enumerate(cols[x]) if i not in used and abs(yc - bar['yc']) <= 3), None)
+            if m is None:
+                bar['gap'] += 1
+                (nxt if bar['gap'] <= 2 else done).append(bar)
+                continue
+            used.add(m)
+            yc, h = cols[x][m]
+            bar.update(x1=x, gap=0)
+            bar['ys'].append(yc)
+            bar['hs'].append(h)
+            nxt.append(bar)
+        for i, (yc, h) in enumerate(cols[x]):
+            if i not in used:
+                nxt.append(dict(x0=x, x1=x, yc=yc, gap=0, ys=[yc], hs=[h]))
+        live = nxt
+    out = []
+    for bar in done + live:
+        if bar['x1'] - bar['x0'] >= 10:
+            out.append(((bar['x0'] - a) / b, (bar['x1'] + 1 - a) / b, y0 + float(np.median(bar['ys'])), float(np.median(bar['hs']))))
+    return out
+
+
+def _page_bars(args):
+    """One page: for each column, compare a frame just before the line reaches it with one just after.
+    Pixels that change then, and are steady before and after, belong to a bar (moving backgrounds are not steady)."""
+    path, (t0, t1, a, b), y0, y1, sp = args
+    fr = region_frames(path, max(0, t0 - 0.35), t1 - t0 + 0.7, y0, y1)
+    if len(fr) < 4:
+        return []
+    ts = np.array([f[0] for f in fr])
+    px = a + b * ts
+    g = [0.0] + [float(np.abs(fr[q][1][::4, ::4] - fr[q - 1][1][::4, ::4]).mean()) for q in range(1, len(fr))]
+    near = [q for q in range(1, len(fr)) if t0 - 0.35 <= ts[q] <= t0 + 0.1]
+    lo = max(near, key=lambda q: g[q]) if near and max(g[q] for q in near) > 8 else int(np.argmin(np.abs(ts - (t0 - 0.08))))
+    after = [q for q in range(lo + 1, len(fr)) if t1 - 0.1 <= ts[q] <= t1 + 0.35]
+    hi = (max(after, key=lambda q: g[q]) - 1) if after and max(g[q] for q in after) > 8 else len(fr) - 1
+    M = np.zeros((y1 - y0, W), bool)
+    for x in range(0, W, 2):
+        bi = np.nonzero(px < x - 14)[0]
+        ai = np.nonzero(px > x + 14)[0]
+        if not len(bi) or not len(ai):
+            continue
+        i, j = bi[-1], ai[0]
+        if j - i > 6 or i < lo or j > hi:
+            continue
+        pi, k = max(lo, i - 3), min(hi, j + 3)
+        d = np.abs(fr[j][1][:, x] - fr[i][1][:, x]).sum(1)
+        pre = np.abs(fr[i][1][:, x] - fr[pi][1][:, x]).sum(1)
+        post = np.abs(fr[k][1][:, x] - fr[j][1][:, x]).sum(1)
+        M[:, x] = (d > 80) & (pre < 60) & (post < 60)
+        M[:, min(W - 1, x + 1)] = M[:, x]
+    return mask_bars(M, a, b, y0, sp)
+
+
+def paged_notes(path, model, y0, y1, sp, procs):
+    jobs = [(path, pg, y0 - PAD, y1 + PAD, sp) for pg in model[1]]
+    bars = []
+    with Pool(procs) as p:
+        for k, r in enumerate(p.imap_unordered(_page_bars, jobs)):
+            bars += r
+            say('notes', 0.74 + 0.1 * (k + 1) / len(jobs), 'Reading each page of the pitch guide')
+    bars.sort()
+    out = []
+    for t0, t1, y, h in bars:          # the same bar can appear on two neighbouring page fits
+        if out and abs(out[-1][0] - t0) < 0.06 and abs(out[-1][2] - y) < 0.4 * sp:
+            continue
+        out.append([t0, t1, y, 1])
+    return out
+
+
 def grid_fit(notes, s):
     """Share of (duration-weighted) notes that sit on a grid of step s, and the grid's phase."""
     w = np.array([n[1] - n[0] for n in notes])
@@ -436,12 +547,16 @@ def extract_notes(path, dur, procs):
             raise RuntimeError('The playhead could not be followed in this video.')
         speed = None
     tauf = tau_factory(model, speed)
-    rec = drop_static(rec, y0, y1)
-    say('notes', 0.8, 'Building the notes')
-    r, Y0 = coverage(rec, y0, y1, dur, tauf)
-    notes = segment(trace(r) + Y0)
-    notes = refine_y(notes, crops, tauf, Y0, sp)
-    notes = [n for n in notes if (n[3] > 0 and n[1] - n[0] >= 0.07) or n[1] - n[0] >= 0.15]
+    notes = []
+    if model[0] == 'paged':
+        notes = [n for n in paged_notes(path, model, y0, y1, sp, procs) if n[1] - n[0] >= 0.05]
+    if len(notes) < 10:      # scrolling guides, or a paged one whose bars do not change colour
+        rec = drop_static(rec, y0, y1)
+        say('notes', 0.8, 'Building the notes')
+        r, Y0 = coverage(rec, y0, y1, dur, tauf)
+        notes = segment(trace(r) + Y0)
+        notes = refine_y(notes, crops, tauf, Y0, sp)
+        notes = [n for n in notes if (n[3] > 0 and n[1] - n[0] >= 0.07) or n[1] - n[0] >= 0.15]
     if len(notes) < 10:
         raise RuntimeError('Too few notes were found in the pitch guide.')
     cands = [(grid_fit(notes, sp / k), sp / k) for k in (2, 1, 3)]

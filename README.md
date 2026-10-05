@@ -133,7 +133,7 @@ Press **Karaoke** at the top. Paste a YouTube link to a karaoke video with a pit
 - Turn on **Microphone** to see your pitch on the guide and get a score at the end: a grade, how much was on pitch, notes hit and your best streak. Your best score is kept for each song. Use headphones so the microphone hears you, not the music.
 - **Key** shifts the guide if it came out in the wrong key, **Mic delay** lines your singing up with the guide, and you can hide or mute the video or show the lyrics as text.
 
-The pitch guide is read from the picture, so check it against the video the first time; some layouts are read better than others.
+The pitch guide is read from the picture. Paged guides (like カラオケ@DIVA and UtaKara) are read by watching each bar change colour as the line passes, which is very accurate; their printed note names, when present, set the key. Scrolling guides are read from how the bars move. Check a new song against the video the first time.
 
 ## Piano songs from falling-notes videos
 
