@@ -126,7 +126,7 @@ Marked notes play with the Slap Bass sounds of the SoundFont (General MIDI 36 an
 
 ## Karaoke
 
-Press **Karaoke** at the top. Paste a YouTube link to a karaoke video with a pitch guide (音程バー) and press Import, or Import and queue. Ongaku Renshuu downloads the video, reads the pitch bars into notes (scrolling and paged layouts both work), finds the key from the audio, times the lyric lines from their colour wipe, and reads the lyric text with your local Ollama vision model, so nothing is sent to an online service. A song can be sung about a minute after you import it; the lyric text follows in the background. Videos are kept in ~/.local/share/ongaku-renshuu-media.
+Press **Karaoke** at the top. Three demo songs come with Ongaku Renshuu so you can try it right away: さくらさくら, Amazing Grace, and Ode to Joy with Schiller's German words. All are public domain, with backing tracks made for Ongaku Renshuu, and they work even without the server. To add your own, paste a YouTube link to a karaoke video with a pitch guide (音程バー) and press Import, or Import and queue. Ongaku Renshuu downloads the video, reads the pitch bars into notes (scrolling and paged layouts both work), finds the key from the audio, times the lyric lines from their colour wipe, and reads the lyric text with your local Ollama vision model, so nothing is sent to an online service. A song can be sung about a minute after you import it; the lyric text follows in the background. Videos are kept in ~/.local/share/ongaku-renshuu-media.
 
 - **Practice** stays on one song: repeat it, set A and B to repeat a section, or slow it down.
 - **Queue** plays like a karaoke machine: songs play one after another with a short countdown, and the next ones are prepared in the background while you sing.

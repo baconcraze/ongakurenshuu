@@ -11,6 +11,7 @@ A free, offline-first practice player for guitar and bass tab and piano parts. I
 - `soundfonts/`: only `sonivox.sf2` is tracked. Downloaded or user fonts and `index.json` are git-ignored.
 - `tools/server.py`: the launcher's web server (replaces `python3 -m http.server`). Serves the app, serves the media folder at `/media/` with byte ranges, and runs imports one at a time at low priority. API: `GET api/info`, `GET api/library`, `GET api/jobs`, `POST api/import {kind:'karaoke'|'piano', url}`, `DELETE api/media/<kind>/<id>`. Write calls need the `X-Ongaku: 1` header and a 127.0.0.1/localhost Host.
 - `tools/karaoke.py` and `tools/pianovideo.py`: video importers (numpy, ffmpeg, yt-dlp; Ollama optional for lyric text). They print JSON progress lines and write `MEDIA/<kind>/<id>/song.json` plus `video.mp4`. MEDIA is `${ONGAKU_MEDIA:-~/.local/share/ongaku-renshuu-media}`; its `venv/` holds an up-to-date yt-dlp, installed automatically when YouTube blocks the system one.
+- `karaoke-demos/`: the bundled karaoke demos (public domain songs), built by `tools/make_demo_karaoke.py` with FluidSynth: `<id>/song.json` (`audio_only: true`), `<id>/audio.m4a`, and `index.json`, which the app reads directly so demos work without the server. To change a demo, edit the song table in that script and run it again.
 - `tools/check.sh`: syntax checks. Run it after every change.
 
 ## Data model

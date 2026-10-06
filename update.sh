@@ -54,6 +54,7 @@ copy_release() { # $1 = source dir
   for f in "${FILES[@]}"; do [[ -f $from/$f ]] && install -m 644 "$from/$f" "$APP_DIR/$f"; done
   if [[ -d $from/vendor ]]; then rm -rf "$APP_DIR/vendor"; cp -r "$from/vendor" "$APP_DIR/vendor"; fi
   if [[ -d $from/tools ]]; then rm -rf "$APP_DIR/tools"; cp -r "$from/tools" "$APP_DIR/tools"; fi
+  if [[ -d $from/karaoke-demos ]]; then rm -rf "$APP_DIR/karaoke-demos"; cp -r "$from/karaoke-demos" "$APP_DIR/karaoke-demos"; fi
   if [[ -d $from/soundfonts ]]; then  # adds bundled fonts, never removes ones you added
     mkdir -p "$APP_DIR/soundfonts"
     cp -f "$from"/soundfonts/*.sf2 "$from"/soundfonts/*.txt "$APP_DIR/soundfonts/" 2>/dev/null || true
@@ -75,6 +76,7 @@ if [[ $MODE == rollback ]]; then
   copy_release "${last%/}"
   [[ -d ${last%/}/vendor ]] || rm -rf "$APP_DIR/vendor"
   [[ -d ${last%/}/tools ]] || rm -rf "$APP_DIR/tools"
+  [[ -d ${last%/}/karaoke-demos ]] || rm -rf "$APP_DIR/karaoke-demos"
   rm -rf "$last"
   ok "Now on version $(ver "$APP_DIR")"
   (( was )) && start_server
@@ -121,6 +123,7 @@ mkdir -p "$BACKUPS/$stamp"
 for f in "${FILES[@]}"; do [[ -f $APP_DIR/$f ]] && cp "$APP_DIR/$f" "$BACKUPS/$stamp/"; done
 [[ -d $APP_DIR/vendor ]] && cp -r "$APP_DIR/vendor" "$BACKUPS/$stamp/"
 [[ -d $APP_DIR/tools ]] && cp -r "$APP_DIR/tools" "$BACKUPS/$stamp/"
+[[ -d $APP_DIR/karaoke-demos ]] && cp -r "$APP_DIR/karaoke-demos" "$BACKUPS/$stamp/"
 ok "Backed up the current version to backups/$stamp"
 ls -1dt "$BACKUPS"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf
 

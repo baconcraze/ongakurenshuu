@@ -1,0 +1,35 @@
+[
+ {
+  "id": "demo-sakura",
+  "title": "さくらさくら (Sakura Sakura)",
+  "artist": "Traditional Japanese song (public domain)",
+  "duration": 63.32,
+  "notes": 50,
+  "lyrics": 7,
+  "demo": true,
+  "video": "karaoke-demos/demo-sakura/audio.m4a",
+  "song": "karaoke-demos/demo-sakura/song.json"
+ },
+ {
+  "id": "demo-amazing-grace",
+  "title": "Amazing Grace",
+  "artist": "John Newton, tune New Britain (public domain)",
+  "duration": 45.71,
+  "notes": 33,
+  "lyrics": 4,
+  "demo": true,
+  "video": "karaoke-demos/demo-amazing-grace/audio.m4a",
+  "song": "karaoke-demos/demo-amazing-grace/song.json"
+ },
+ {
+  "id": "demo-ode-to-joy",
+  "title": "Ode to Joy (Freude, schöner Götterfunken)",
+  "artist": "Ludwig van Beethoven, words by Friedrich Schiller (public domain)",
+  "duration": 47.1,
+  "notes": 62,
+  "lyrics": 8,
+  "demo": true,
+  "video": "karaoke-demos/demo-ode-to-joy/audio.m4a",
+  "song": "karaoke-demos/demo-ode-to-joy/song.json"
+ }
+]

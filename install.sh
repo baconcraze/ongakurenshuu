@@ -111,6 +111,7 @@ install -m 755 "$SRC/update.sh"  "$APP_DIR/update.sh"
 [[ -f $SRC/VERSION ]] && install -m 644 "$SRC/VERSION" "$APP_DIR/VERSION"
 if [[ -d $SRC/vendor ]]; then rm -rf "$APP_DIR/vendor"; cp -r "$SRC/vendor" "$APP_DIR/vendor"; fi
 if [[ -d $SRC/tools ]]; then rm -rf "$APP_DIR/tools"; cp -r "$SRC/tools" "$APP_DIR/tools"; fi
+if [[ -d $SRC/karaoke-demos ]]; then rm -rf "$APP_DIR/karaoke-demos"; cp -r "$SRC/karaoke-demos" "$APP_DIR/karaoke-demos"; fi
 if [[ -d $SRC/soundfonts ]]; then mkdir -p "$APP_DIR/soundfonts"; cp -f "$SRC"/soundfonts/*.sf2 "$SRC"/soundfonts/*.txt "$APP_DIR/soundfonts/" 2>/dev/null || true; fi
 [[ -f $SRC/README.md ]] && install -m 644 "$SRC/README.md" "$APP_DIR/README.md"
 ln -sfn "$APP_DIR/ongaku-renshuu.sh" "$BIN_DIR/ongaku"

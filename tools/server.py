@@ -166,7 +166,10 @@ def make_handler(root, media, jobs, port):
                     self.send_error(HTTPStatus.NOT_FOUND)
                 return
             if path.startswith('/media/'):
-                self.serve_media(path[len('/media/'):])
+                self.serve_file(media, path[len('/media/'):])
+                return
+            if path.startswith('/karaoke-demos/'):      # demo audio needs byte ranges so it can be seeked
+                self.serve_file(os.path.join(root, 'karaoke-demos'), path[len('/karaoke-demos/'):])
                 return
             super().do_GET()
 
@@ -216,10 +219,10 @@ def make_handler(root, media, jobs, port):
                 shutil.rmtree(d)
             self.send_json({'ok': True})
 
-        def serve_media(self, rel):
+        def serve_file(self, base, rel):
             rel = urllib.parse.unquote(rel)
-            full = os.path.realpath(os.path.join(media, rel))
-            if not full.startswith(os.path.realpath(media) + os.sep) or not os.path.isfile(full):
+            full = os.path.realpath(os.path.join(base, rel))
+            if not full.startswith(os.path.realpath(base) + os.sep) or not os.path.isfile(full):
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
             size = os.path.getsize(full)

@@ -30,7 +30,7 @@ v_file="$(tr -d '[:space:]' < VERSION)"
 v_meta="$(grep -o 'name="ongaku-renshuu-version" content="[^"]*"' index.html | sed 's/.*content="//; s/"$//')"
 if [[ $v_file == "$v_meta" ]]; then echo "ok   version $v_file"; else echo "FAIL VERSION is $v_file but index.html says $v_meta"; fail=1; fi
 
-for f in vendor/alphaTab.min.js vendor/vexflow-bravura.js soundfonts/sonivox.sf2; do
+for f in vendor/alphaTab.min.js vendor/vexflow-bravura.js soundfonts/sonivox.sf2 karaoke-demos/index.json; do
   if [[ -s $f ]]; then echo "ok   $f"; else echo "FAIL missing $f"; fail=1; fi
 done
 

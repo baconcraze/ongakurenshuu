@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.9.1">
+<meta name="ongaku-renshuu-version" content="1.9.2">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -245,7 +245,9 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
 .klyrics .kl{position:relative;display:block;color:#fff;-webkit-text-stroke:5px #111;paint-order:stroke fill;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .klyrics .kl:nth-child(1){text-align:left}.klyrics .kl:nth-child(2){text-align:right}
 .klyrics .kl i{position:absolute;inset:0;font-style:normal;color:var(--brass-light);clip-path:inset(0 calc(100% - var(--w,0%)) 0 0)}
-.kstage.novideo .klyrics{bottom:auto;top:52%}
+.kstage.novideo .klyrics,.kstage.audioonly .klyrics{bottom:auto;top:52%}
+.kstage.audioonly{background:radial-gradient(ellipse at 50% 120%,#3a2018 0%,#1a0f0b 55%,#0c0908 100%)}
+.kstage.audioonly video{visibility:hidden}
 .kside{width:340px;max-width:85vw;flex:none;background:var(--wood-2);border-left:1px solid var(--wood-line);overflow:auto;padding:12px 14px}
 .kside h3{font:600 12px var(--num);letter-spacing:.1em;text-transform:uppercase;color:var(--wood-dim);margin:16px 0 6px}
 .kside input[type=search],.kside input[type=url]{width:100%;padding:8px 10px;border:1px solid var(--wood-line);border-radius:6px;background:var(--wood);color:var(--wood-ink)}
@@ -361,7 +363,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
       <video id="kVideo" playsinline preload="auto"></video>
       <canvas id="kLane" aria-label="Pitch guide"></canvas>
       <div id="kLyrics" class="klyrics" aria-live="off"></div>
-      <div id="kEmpty" class="kempty">Pick a song from the list, or paste a karaoke video link to import it. Videos with a pitch guide (音程バー) work best.</div>
+      <div id="kEmpty" class="kempty">Pick a song from the list (the demos are a good start), or paste a karaoke video link to import it. Videos with a pitch guide (音程バー) work best.</div>
       <div id="kResult" class="kresult" hidden>
         <div class="kcard" role="dialog" aria-label="Your score">
           <div class="kgrade" id="kGrade"></div>
@@ -3668,10 +3670,12 @@ $('#kModePractice').addEventListener('click', () => setKaraMode('practice'));
 $('#kModeQueue').addEventListener('click', () => { setKaraMode('queue'); if(!kara.song && kara.queue.length) playQueueHead(); });
 
 async function refreshKaraoke(){
+  let demos = [];
+  try{ const r = await fetch('karaoke-demos/index.json', {cache:'no-store'}); if(r.ok) demos = (await r.json()).map(d => Object.assign({demo:true}, d)); }catch(e){}
   try{
     const lib = await api('api/library');
-    kara.lib = lib.karaoke || []; kara.server = true; $('#kSrvMsg').textContent = '';
-  }catch(e){ kara.server = false; kara.lib = []; $('#kSrvMsg').textContent = NO_SERVER; }
+    kara.lib = (lib.karaoke || []).concat(demos); kara.server = true; $('#kSrvMsg').textContent = '';
+  }catch(e){ kara.server = false; kara.lib = demos; $('#kSrvMsg').textContent = NO_SERVER + ' The demo songs work without it.'; }
   renderKaraSongs(); renderKaraQueue();
 }
 function renderKaraSongs(){
@@ -3682,7 +3686,7 @@ function renderKaraSongs(){
     const li = document.createElement('li');
     if(s.id === kara.id) li.setAttribute('aria-current', 'true');
     const best = sc[s.id] && sc[s.id].best != null ? ` · best ${sc[s.id].best.toFixed(1)}` : '';
-    li.innerHTML = `<div class="kn"><b>${esc(s.title || s.id)}</b><span>${esc(s.artist || '')} · ${fmtTime(s.duration)}${best}${s.lyrics ? '' : ' · lyrics coming'}</span></div>`;
+    li.innerHTML = `<div class="kn"><b>${esc(s.title || s.id)}</b><span>${s.demo ? 'Demo · ' : ''}${esc(s.artist || '')} · ${fmtTime(s.duration)}${best}${s.lyrics ? '' : ' · lyrics coming'}</span></div>`;
     const sing = document.createElement('button'); sing.textContent = 'Sing'; sing.addEventListener('click', () => { stopCountdown(); karaLoad(s.id, true); });
     const add = document.createElement('button'); add.textContent = 'Queue'; add.title = 'Add to the queue'; add.addEventListener('click', () => { kara.queue.push({id:s.id, title:s.title}); saveQueue(); renderKaraQueue(); toast('Added to the queue'); if(kara.mode === 'queue' && !kara.song) playQueueHead(); });
     const del = document.createElement('button'); del.textContent = '×'; del.title = 'Delete this song and its video'; del.setAttribute('aria-label', `Delete ${s.title}`);
@@ -3693,7 +3697,7 @@ function renderKaraSongs(){
       if(kara.id === s.id){ kv.removeAttribute('src'); kv.load(); kara.song = null; kara.id = null; }
       refreshKaraoke();
     });
-    li.append(sing, add, del); ul.appendChild(li);
+    li.append(sing, add); if(!s.demo) li.append(del); ul.appendChild(li);
   }
   if(!list.length){ const li = document.createElement('li'); li.innerHTML = `<div class="kn"><span>${kara.server === false ? 'Start the server to import songs.' : q ? 'No songs match.' : 'No karaoke songs yet. Paste a link above.'}</span></div>`; ul.appendChild(li); }
 }
@@ -3752,6 +3756,7 @@ async function karaLoad(id, autoplay){
   $('#kTitle').textContent = js.title || id; $('#kArtist').textContent = js.artist || '';
   $('#kKey').textContent = (kara.adj.key > 0 ? '+' : '') + kara.adj.key;
   $('#kEmpty').hidden = true; $('#kResult').hidden = true;
+  kstage.classList.toggle('audioonly', !!js.audio_only);
   kv.src = meta.video; kv.playbackRate = kara.mode === 'practice' ? +$('#kSpeed').value : 1;
   try{ kv.preservesPitch = true; }catch(e){}
   fitView(true); renderKaraSongs();
@@ -3943,7 +3948,7 @@ function drawLane(t, tt, key, target){
   if(kcv.width !== Math.round(W2 * dpr) || kcv.height !== Math.round(H2 * dpr)){ kcv.width = Math.round(W2 * dpr); kcv.height = Math.round(H2 * dpr); }
   const c = kcv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W2, H2);
   if(!kara.song || !kara.notes.length) return;
-  const vid = !kstage.classList.contains('novideo');
+  const vid = !kstage.classList.contains('novideo') && !kstage.classList.contains('audioonly');
   const vr = vid ? videoRect() : {x:0, y:0, w:W2, h:H2};
   // cover the video's own pitch guide (found during import) with this lane
   const st = kara.song.analysis && kara.song.analysis.staff;
@@ -3997,7 +4002,7 @@ function lineWipe(l, t){
 }
 function drawLyrics(t){
   const box = $('#kLyrics');
-  const want = kara.song && kara.lines.length && (kstage.classList.contains('novideo') || $('#kTextTog').getAttribute('aria-pressed') === 'true');
+  const want = kara.song && kara.lines.length && (kstage.classList.contains('novideo') || kstage.classList.contains('audioonly') || $('#kTextTog').getAttribute('aria-pressed') === 'true');
   if(!want){ if(lyricSig){ box.innerHTML = ''; lyricSig = ''; } return; }
   const vis = kara.lines.filter(l => l.t0 <= t && t < l.t1).sort((a, b) => (a.y || 0) - (b.y || 0)).slice(0, 2);
   const sig = vis.map(l => l.t0 + l.text).join('|');
