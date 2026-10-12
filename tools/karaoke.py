@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Turn a karaoke video (YouTube link or local file) into an Ongaku Renshuu karaoke song.
 
-It downloads the video, reads the on-screen pitch bars into notes, finds the key from the
-audio, times the lyric lines from their colour wipe, and (when Ollama is running) reads the
-lyric text with a local vision model. Everything is written to MEDIA/karaoke/<id>/.
+It downloads the video and builds the pitch guide in one of two ways:
+1. From the original recording (first choice): find the original song, line it up with the karaoke
+   track, separate its vocal, and follow the sung pitch (vocalguide.py).
+2. From the video itself (fallback): read the on-screen pitch bars into notes and find the key from
+   the audio.
+Then it times the lyric lines from their colour wipe and (when Ollama is running) reads the lyric
+text with a local vision model. Everything is written to MEDIA/karaoke/<id>/.
 
-Usage: karaoke.py URL_OR_FILE [--media DIR] [--no-lyrics] [--ollama URL] [--model NAME]
+Usage: karaoke.py URL_OR_FILE [--media DIR] [--method auto|vocals|bars] [--original URL]
+                  [--no-lyrics] [--ollama URL] [--model NAME]
 Progress is printed as JSON lines: {"stage": ..., "progress": 0..1, "message": ...}
 """
 import argparse, base64, io, json, os, re, shutil, subprocess, sys, time, urllib.request
@@ -873,10 +878,13 @@ def update_ytdlp(media):
 def download(url, dest_dir, media):
     """Download as H.264 + AAC mp4 so every browser can play it. Returns (path, info)."""
     out = os.path.join(dest_dir, 'video.%(ext)s')
-    fmt = 'bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/bv*[height<=720]+ba/b'
-    args = ['--no-playlist', '--no-warnings', '--newline', '-f', fmt, '--merge-output-format', 'mp4',
-            '--write-info-json', '-o', out, '--', url]
-    for attempt in (0, 1):
+    # H.264 first (plays everywhere); YouTube sometimes refuses one format, so fall back to others
+    fmts = ['bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]', 'bv*[height<=720]+ba/b[height<=720]', 'b']
+    updated = False
+    fi = 0
+    while True:
+        args = ['--no-playlist', '--no-warnings', '--newline', '-f', fmts[fi], '--merge-output-format', 'mp4',
+                '--write-info-json', '-o', out, '--', url]
         p = subprocess.Popen(ytdlp_cmd(media) + args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         log = []
         for line in p.stdout:
@@ -887,14 +895,25 @@ def download(url, dest_dir, media):
         p.wait()
         if p.returncode == 0:
             break
-        if attempt == 0 and any('403' in l or 'Sign in' in l or 'Requested format' in l or 'nsig' in l for l in log):
+        blocked = any('403' in l or 'Sign in' in l or 'Requested format' in l or 'nsig' in l for l in log)
+        if blocked and not updated and not os.path.exists(os.path.join(media, 'venv', 'bin', 'yt-dlp')):
             update_ytdlp(media)
+            updated = True
+            continue
+        if blocked and fi + 1 < len(fmts):
+            fi += 1
+            for f in os.listdir(dest_dir):
+                if f.startswith('video.') and (f.endswith('.part') or '.f' in f):
+                    os.remove(os.path.join(dest_dir, f))
             continue
         raise RuntimeError('The download failed: ' + ''.join(log[-3:]).strip())
     info = {}
     try:
         info = json.load(open(os.path.join(dest_dir, 'video.info.json')))
         os.remove(os.path.join(dest_dir, 'video.info.json'))
+        # keep the title and channel, so a rebuild can still search for the original song
+        json.dump({k: info.get(k) for k in ('title', 'uploader', 'webpage_url', 'duration') if info.get(k)},
+                  open(os.path.join(dest_dir, 'source.json'), 'w', encoding='utf-8'), ensure_ascii=False)
     except Exception:
         pass
     path = os.path.join(dest_dir, 'video.mp4')
@@ -906,6 +925,13 @@ def download(url, dest_dir, media):
     return path, info
 
 
+def work_dir(dest):
+    """Downloads and stems used while building the guide; kept so a rebuild does not repeat them."""
+    d = os.path.join(dest, 'work')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def update_index(media):
     root = os.path.join(media, 'karaoke')
     items = []
@@ -913,7 +939,7 @@ def update_index(media):
         f = os.path.join(root, d, 'song.json')
         try:
             s = json.load(open(f, encoding='utf-8'))
-            items.append({k: s.get(k) for k in ('id', 'title', 'artist', 'duration', 'created', 'notes_count', 'lyrics_count', 'source')})
+            items.append({k: s.get(k) for k in ('id', 'title', 'artist', 'duration', 'created', 'notes_count', 'lyrics_count', 'source', 'guide')})
         except Exception:
             pass
     tmp = os.path.join(root, 'index.json.tmp')
@@ -934,6 +960,9 @@ def main():
     ap.add_argument('source')
     ap.add_argument('--media')
     ap.add_argument('--no-lyrics', action='store_true')
+    ap.add_argument('--method', choices=['auto', 'vocals', 'bars'], default='auto',
+                    help='auto: original vocals first, then the video\'s pitch bars')
+    ap.add_argument('--original', help='link to the original recording, instead of searching for it')
     ap.add_argument('--ollama', default=os.environ.get('OLLAMA_HOST', 'http://127.0.0.1:11434'))
     ap.add_argument('--model', default='qwen2.5vl:7b')
     ap.add_argument('--procs', type=int, default=max(2, min(12, (os.cpu_count() or 4) // 2)))
@@ -949,11 +978,13 @@ def main():
         if re.match(r'https?://', a.source):
             if os.path.exists(os.path.join(dest, 'video.mp4')):
                 path, info = os.path.join(dest, 'video.mp4'), {}
-                try:
-                    old = json.load(open(os.path.join(dest, 'song.json'), encoding='utf-8'))
-                    info = old.get('source_info') or {'title': old.get('title'), 'uploader': old.get('artist')}
-                except Exception:
-                    pass
+                for f in ('source.json', 'song.json'):
+                    try:
+                        old = json.load(open(os.path.join(dest, f), encoding='utf-8'))
+                        info = old if f == 'source.json' else (old.get('source_info') or {'title': old.get('title'), 'uploader': old.get('artist')})
+                        break
+                    except Exception:
+                        pass
             else:
                 say('download', 0, 'Downloading the video')
                 path, info = download(a.source, dest, media)
@@ -967,30 +998,57 @@ def main():
                 'source': a.source if re.match(r'https?://', a.source) else '', 'duration': round(dur, 2),
                 'video': os.path.basename(path), 'created': int(time.time()), 'notes': [], 'lyrics': [],
                 'source_info': {k: info.get(k) for k in ('title', 'uploader', 'webpage_url') if info.get(k)}}
-        notes, ninfo, (y0, y1) = extract_notes(path, dur, a.procs)
-        say('key', 0.9, 'Finding the key from the audio')
-        k, conf = fit_key(path, notes)
-        song['key_source'] = 'audio'
-        lab = key_from_labels(path, ninfo, a.ollama, a.model)
-        if lab:
-            if lab[0] != k:
-                say('key', 0.95, 'The note names on the guide corrected the key')
-            k, conf = lab[0], 9.0
-            song['key_source'] = f'note names ({lab[1]} of {lab[2]} agree)'
-        ninfo.pop('_model', None)
-        ninfo.pop('_bars', None)
-        # place the melody in a comfortable octave: middle of the song around D4
-        med = float(np.median([p + k for _, _, p in notes]))
-        octave = int(round((62 - med) / 12)) * 12
-        song['notes'] = [[round(s, 3), round(e - s, 3), int(p + k + octave)] for s, e, p in notes]
-        song['key_confidence'] = round(conf, 2)
-        song['analysis'] = ninfo
-        song['notes_count'] = len(notes)
+        vocal_err = None
+        y1 = None
+        if a.method in ('auto', 'vocals'):
+            import vocalguide
+            try:
+                vnotes, cont, vinfo = vocalguide.build(path, song['title'], dur, media, work_dir(dest), ytdlp_cmd(media), a.original, a.procs)
+                song['notes'] = vnotes
+                song['contour'] = cont
+                song['analysis'] = vinfo
+                song['guide'] = 'vocals'
+                song['key_source'] = 'original vocal'
+                song['key_confidence'] = 9.0
+            except Exception as e:
+                vocal_err = str(e)
+                if a.method == 'vocals':
+                    raise
+                say('notes', 0.02, f'The original song could not be used ({vocal_err.rstrip(".")}). Reading the video\'s own pitch bars instead.')
+        if not song['notes']:
+            try:
+                notes, ninfo, (y0, y1) = extract_notes(path, dur, a.procs)
+            except RuntimeError as e:
+                if vocal_err:
+                    raise RuntimeError(f'The original song could not be used ({vocal_err.rstrip(".")}), and the video has no pitch bars to read either. '
+                                       'Try again with a link to the original song.')
+                raise
+            say('key', 0.9, 'Finding the key from the audio')
+            k, conf = fit_key(path, notes)
+            song['key_source'] = 'audio'
+            lab = key_from_labels(path, ninfo, a.ollama, a.model)
+            if lab:
+                if lab[0] != k:
+                    say('key', 0.95, 'The note names on the guide corrected the key')
+                k, conf = lab[0], 9.0
+                song['key_source'] = f'note names ({lab[1]} of {lab[2]} agree)'
+            ninfo.pop('_model', None)
+            ninfo.pop('_bars', None)
+            # place the melody in a comfortable octave: middle of the song around D4
+            med = float(np.median([p + k for _, _, p in notes]))
+            octave = int(round((62 - med) / 12)) * 12
+            song['notes'] = [[round(s, 3), round(e - s, 3), int(p + k + octave)] for s, e, p in notes]
+            song['key_confidence'] = round(conf, 2)
+            song['analysis'] = ninfo
+            song['guide'] = 'bars'
+            if vocal_err:
+                song['analysis']['vocals_error'] = vocal_err
+        song['notes_count'] = len(song['notes'])
         json.dump(song, open(os.path.join(dest, 'song.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         update_index(media)
-        say('notes', 1, f'Pitch guide ready: {len(notes)} notes')
+        say('notes', 1, f'Pitch guide ready: {len(song["notes"])} notes' + (' from the original vocal' if song.get('guide') == 'vocals' else ''))
         if not a.no_lyrics:
-            lines = extract_lyric_lines(path, dur, min(H - 120, y1 + 24), a.procs)
+            lines = extract_lyric_lines(path, dur, min(H - 120, y1 + 24) if y1 else 30, a.procs)
             for ln in lines:
                 ln['text'] = ''
             song['lyrics'] = lines
@@ -1005,7 +1063,8 @@ def main():
         update_index(media)
         say('done', 1, f'Ready in {time.time() - T0:.0f} s')
     except Exception as e:
-        say('error', None, str(e))
+        msg = str(e)
+        say('error', None, msg[:1].upper() + msg[1:])
         sys.exit(1)
 
 

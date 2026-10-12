@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ongaku Renshuu launcher: serves Ongaku Renshuu on 127.0.0.1 in the background and opens it.
-# Usage: ongaku [--serve | --stop | --status | --get-soundfont | --karaoke URL | --piano URL | --update-ytdlp | --help]
+# Usage: ongaku [--serve | --stop | --status | --get-soundfont | --karaoke URL [OPTIONS] | --piano URL | --setup-vocals | --update-ytdlp | --help]
 set -euo pipefail
 DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PORT="${ONGAKU_PORT:-8765}"   # keep this fixed: your library is saved per address
@@ -56,7 +56,7 @@ case "${1:-}" in
   --karaoke|--piano)
     [[ -n ${2:-} ]] || { echo "Usage: ongaku $1 URL_OR_FILE" >&2; exit 1; }
     tool=karaoke.py; [[ $1 == --piano ]] && tool=pianovideo.py
-    python3 "$DIR/tools/$tool" "$2" --media "$MEDIA" | python3 -c '
+    python3 "$DIR/tools/$tool" "$2" --media "$MEDIA" "${@:3}" | python3 -c '
 import json, sys
 for line in sys.stdin:
     try: m = json.loads(line)
@@ -64,6 +64,12 @@ for line in sys.stdin:
     p = m.get("progress"); pct = "" if p is None else f" {int(p*100)}%"
     print(f"[{m.get(\"stage\")}{pct}] {m.get(\"message\")}", flush=True)'
     exit "${PIPESTATUS[0]}" ;;
+  --setup-vocals)
+    mkdir -p "$MEDIA"
+    echo "Installing the vocal separator (PyTorch and Demucs, a few GB) into $MEDIA/vocal-venv..."
+    python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import vocalguide; vocalguide.install_separator(sys.argv[2])' "$DIR/tools" "$MEDIA" >/dev/null \
+      && echo "The vocal separator is ready. Karaoke imports can now build pitch guides from the original song's vocals."
+    exit $? ;;
   --update-ytdlp)
     mkdir -p "$MEDIA"
     python3 -m venv "$MEDIA/venv" && "$MEDIA/venv/bin/pip" install -q -U yt-dlp && echo "yt-dlp $("$MEDIA/venv/bin/yt-dlp" --version) is ready."
@@ -72,7 +78,10 @@ for line in sys.stdin:
     echo "Usage: ongaku [--serve | --stop | --status]"
     echo "  --serve          start the server without opening the browser"
     echo "  --get-soundfont  download the GeneralUser GS instrument sounds (about 32 MB)"
-    echo "  --karaoke URL    import a karaoke video with a pitch guide (also works from the app)"
+    echo "  --karaoke URL    import a karaoke video (also works from the app). The pitch guide comes from"
+    echo "                   the original song's vocals, or from the video's own pitch bars if that fails."
+    echo "                   Add --original LINK to name the original song, or --method bars to skip it."
+    echo "  --setup-vocals   install the vocal separator now instead of on the first karaoke import"
     echo "  --piano URL      import a falling-notes piano video as a piano song"
     echo "  --update-ytdlp   install the newest yt-dlp for video downloads"
     echo "Downloaded videos are kept in $MEDIA"

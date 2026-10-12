@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.9.2">
+<meta name="ongaku-renshuu-version" content="1.10.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -273,6 +273,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
 .kgrp output{min-width:28px;text-align:center;font:600 14px var(--num)}
 .kgrp input[type=range]{width:90px;accent-color:var(--brass)}
 .klive{font:600 14px var(--num);color:var(--brass-light);min-width:110px}
+.kside select{width:100%;padding:8px 10px;border:1px solid var(--wood-line);border-radius:6px;background:var(--wood);color:var(--wood-ink)}
 .kresult{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.7);padding:16px}
 .kcard{background:var(--paper);color:var(--ink);border-radius:14px;padding:22px 28px;min-width:min(340px,90vw);text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.5)}
 .kgrade{font:700 64px/1 var(--num);color:var(--brass)}
@@ -363,7 +364,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
       <video id="kVideo" playsinline preload="auto"></video>
       <canvas id="kLane" aria-label="Pitch guide"></canvas>
       <div id="kLyrics" class="klyrics" aria-live="off"></div>
-      <div id="kEmpty" class="kempty">Pick a song from the list (the demos are a good start), or paste a karaoke video link to import it. Videos with a pitch guide (音程バー) work best.</div>
+      <div id="kEmpty" class="kempty">Pick a song from the list (the demos are a good start), or paste a karaoke video link to import it. Ongaku Renshuu finds the original song, follows its singer's pitch, and turns it into a pitch guide.</div>
       <div id="kResult" class="kresult" hidden>
         <div class="kcard" role="dialog" aria-label="Your score">
           <div class="kgrade" id="kGrade"></div>
@@ -382,6 +383,9 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <aside class="kside" id="kSide">
       <div class="kimp">
         <label class="f">Import a karaoke video<input id="kUrl" type="url" placeholder="YouTube link" autocomplete="off"></label>
+        <label class="f">Pitch guide from<select id="kMethod"><option value="auto">The original song's vocals (best)</option><option value="bars">The video's own pitch bars</option></select></label>
+        <label class="f" id="kOrigWrap">Original song link (optional)<input id="kOrig" type="url" placeholder="Found on YouTube if left empty" autocomplete="off"></label>
+        <p id="kMethodHelp" class="help"></p>
         <div class="row-btns"><button class="btn primary" id="kImportQ">Import and queue</button><button class="btn" id="kImport">Import</button></div>
         <p id="kSrvMsg" class="help"></p>
       </div>
@@ -400,7 +404,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <span class="kgrp"><span class="kdim">Key</span><button class="ibtn sm" id="kKeyDn" aria-label="Guide key down">&minus;</button><output id="kKey">0</output><button class="ibtn sm" id="kKeyUp" aria-label="Guide key up">+</button></span>
     <span class="kgrp" id="kPracticeCtl"><label class="kdim" for="kSpeed">Speed</label><select id="kSpeed"><option value="1">100%</option><option value="0.9">90%</option><option value="0.8">80%</option><option value="0.7">70%</option><option value="0.6">60%</option></select>
       <button class="tog" id="kLoopA" title="Start of a section to repeat">A</button><button class="tog" id="kLoopB" title="End of the section to repeat">B</button><button class="tog" id="kLoop" aria-pressed="false" title="Repeat the song, or the A to B section">Repeat</button></span>
-    <span class="kgrp"><button class="tog" id="kVidTog" aria-pressed="true" title="Show or hide the video">Video</button><button class="tog" id="kTextTog" aria-pressed="false" title="Show the lyrics as text">Lyrics text</button>
+    <span class="kgrp"><button class="tog" id="kVidTog" aria-pressed="true" title="Show or hide the video">Video</button><button class="tog" id="kLanePos" aria-pressed="false" title="Show the pitch guide at the top or the bottom of the video">Guide at top</button><button class="tog" id="kTextTog" aria-pressed="false" title="Show the lyrics as text">Lyrics text</button>
       <button class="tog" id="kMute" aria-pressed="false" title="Mute the video's sound">Mute</button><input type="range" id="kVol" min="0" max="1" step="0.05" aria-label="Video volume"></span>
     <span class="kgrp"><label class="kdim" for="kLat" title="Microphone delay. Raise it if your singing shows up late.">Mic delay</label><input type="range" id="kLat" min="0" max="400" step="10" aria-label="Microphone delay"><output id="kLatOut"></output></span>
     <span id="kLive" class="klive" aria-live="off"></span>
@@ -3578,10 +3582,10 @@ function watchJobs(fn){
   };
   poll();
 }
-async function startImport(kind, url){
+async function startImport(kind, url, extra){
   url = String(url || '').trim();
   if(!/^https?:\/\//.test(url)) throw new Error('Paste a full video link that starts with https://');
-  try{ return await api('api/import', {method:'POST', body:JSON.stringify({kind, url})}); }
+  try{ return await api('api/import', {method:'POST', body:JSON.stringify(Object.assign({kind, url}, extra || {}))}); }
   catch(e){ if(/Failed to fetch|NetworkError|404|405|501/.test(String(e.message))) throw new Error(NO_SERVER); throw e; }
 }
 
@@ -3630,7 +3634,7 @@ async function onPianoJobs(jobs){
 /* ---------- Karaoke (pitch guide from karaoke videos, microphone scoring, queue and practice modes) ---------- */
 const kara = {open:false, lib:[], song:null, id:null, notes:[], lines:[], mode:settings.karaMode === 'queue' ? 'queue' : 'practice',
   queue:store.get('ongaku.karaokeQueue', []), adj:{key:0}, track:[], stats:null, raf:0, mic:null, loopA:null, loopB:null,
-  view:{lo:55, hi:72}, countdown:null, server:null};
+  view:{lo:55, hi:72}, countdown:null, server:null, contour:[], pops:[], combo:0, lastTarget:null, separator:null};
 const kv = $('#kVideo'), kcv = $('#kLane'), kstage = $('#kStage');
 const kAdjAll = () => store.get('ongaku.karaokeAdjust', {}) || {};
 const kScores = () => store.get('ongaku.karaokeScores', {}) || {};
@@ -3675,6 +3679,7 @@ async function refreshKaraoke(){
   try{
     const lib = await api('api/library');
     kara.lib = (lib.karaoke || []).concat(demos); kara.server = true; $('#kSrvMsg').textContent = '';
+    if(kara.separator == null) api('api/info').then(i => { kara.separator = !!i.separator; updateMethodUI(); }).catch(() => {});
   }catch(e){ kara.server = false; kara.lib = demos; $('#kSrvMsg').textContent = NO_SERVER + ' The demo songs work without it.'; }
   renderKaraSongs(); renderKaraQueue();
 }
@@ -3686,7 +3691,8 @@ function renderKaraSongs(){
     const li = document.createElement('li');
     if(s.id === kara.id) li.setAttribute('aria-current', 'true');
     const best = sc[s.id] && sc[s.id].best != null ? ` · best ${sc[s.id].best.toFixed(1)}` : '';
-    li.innerHTML = `<div class="kn"><b>${esc(s.title || s.id)}</b><span>${s.demo ? 'Demo · ' : ''}${esc(s.artist || '')} · ${fmtTime(s.duration)}${best}${s.lyrics ? '' : ' · lyrics coming'}</span></div>`;
+    const src = s.guide === 'vocals' ? ' · guide from the original vocal' : s.guide === 'bars' ? ' · guide from the video' : '';
+    li.innerHTML = `<div class="kn"><b>${esc(s.title || s.id)}</b><span>${s.demo ? 'Demo · ' : ''}${esc(s.artist || '')} · ${fmtTime(s.duration)}${best}${src}${s.lyrics || s.demo ? '' : ' · lyrics coming'}</span></div>`;
     const sing = document.createElement('button'); sing.textContent = 'Sing'; sing.addEventListener('click', () => { stopCountdown(); karaLoad(s.id, true); });
     const add = document.createElement('button'); add.textContent = 'Queue'; add.title = 'Add to the queue'; add.addEventListener('click', () => { kara.queue.push({id:s.id, title:s.title}); saveQueue(); renderKaraQueue(); toast('Added to the queue'); if(kara.mode === 'queue' && !kara.song) playQueueHead(); });
     const del = document.createElement('button'); del.textContent = '×'; del.title = 'Delete this song and its video'; del.setAttribute('aria-label', `Delete ${s.title}`);
@@ -3731,9 +3737,11 @@ function onKaraJobs(jobs){
   if(kara.mode === 'queue' && !kara.song && kara.queue.length && queueStatus(kara.queue[0]).ready) playQueueHead();
 }
 async function karaImport(queueIt){
-  const url = $('#kUrl').value;
+  const url = $('#kUrl').value, orig = $('#kOrig').value.trim();
+  if(orig && !/^https?:\/\//.test(orig)){ $('#kSrvMsg').textContent = 'The original song link should start with https://'; return; }
   try{
-    const j = await startImport('karaoke', url);
+    const j = await startImport('karaoke', url, {method:$('#kMethod').value, original:$('#kMethod').value === 'auto' ? orig : ''});
+    $('#kOrig').value = '';
     const id = videoSongId(url) || null;
     if(queueIt && id){ kara.queue.push({id, job:j.id, url, title:''}); saveQueue(); }
     $('#kUrl').value = ''; $('#kSrvMsg').textContent = queueIt ? 'Added to the queue. It is prepared in the background, so you can keep singing.' : 'Importing in the background. It appears under Songs when it is ready.';
@@ -3743,6 +3751,17 @@ async function karaImport(queueIt){
 $('#kImportQ').addEventListener('click', () => karaImport(true));
 $('#kImport').addEventListener('click', () => karaImport(false));
 $('#kUrl').addEventListener('keydown', e => { if(e.key === 'Enter') karaImport(kara.mode === 'queue'); });
+function updateMethodUI(){
+  const m = $('#kMethod').value;
+  $('#kOrigWrap').hidden = m !== 'auto';
+  $('#kMethodHelp').textContent = m === 'auto'
+    ? `Finds the original recording, separates its vocal, and follows the singer's pitch. If that fails, it reads the video's own pitch bars instead.${kara.separator === false ? ' The first time, it installs the vocal separator (a few GB), which takes a while.' : ''}`
+    : 'Reads the pitch bars drawn on the video (音程バー). Use this for videos that show a pitch guide.';
+}
+settings.karaMethod = settings.karaMethod === 'bars' ? 'bars' : 'auto';
+$('#kMethod').value = settings.karaMethod;
+$('#kMethod').addEventListener('change', () => { settings.karaMethod = $('#kMethod').value; saveSettings(); updateMethodUI(); });
+updateMethodUI();
 
 async function karaLoad(id, autoplay){
   const meta = kara.lib.find(s => s.id === id); if(!meta) return;
@@ -3751,6 +3770,8 @@ async function karaLoad(id, autoplay){
   kara.song = js; kara.id = id;
   kara.adj = Object.assign({key:0}, kAdjAll()[id] || {});
   kara.notes = (js.notes || []).map(([t, d, m]) => ({t, e:t + d, m, act:0, hit:0, close:0}));
+  kara.contour = Array.isArray(js.contour) ? js.contour : [];
+  kara.pops = []; kara.lastTarget = null; kara.combo = 0;
   kara.lines = (js.lyrics || []).filter(l => l.text);
   kara.track = []; kara.stats = null; kara.loopA = kara.loopB = null; setLoopUI();
   $('#kTitle').textContent = js.title || id; $('#kArtist').textContent = js.artist || '';
@@ -3799,7 +3820,12 @@ function setLoopUI(){
 $('#kLoopA').addEventListener('click', () => { kara.loopA = kara.loopA != null ? null : kv.currentTime; if(kara.loopB != null && kara.loopA != null && kara.loopB <= kara.loopA) kara.loopB = null; setLoopUI(); });
 $('#kLoopB').addEventListener('click', () => { kara.loopB = kara.loopB != null ? null : kv.currentTime; if(kara.loopA == null) kara.loopA = 0; if(kara.loopB != null && kara.loopB <= kara.loopA) kara.loopB = null; else if(kara.loopB != null){ $('#kLoop').setAttribute('aria-pressed', 'true'); } setLoopUI(); });
 $('#kLoop').addEventListener('click', e => { const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'; e.currentTarget.setAttribute('aria-pressed', on ? 'true' : 'false'); });
-function startOver(){ for(const n of kara.notes){ n.act = n.hit = n.close = 0; } kara.track = []; kara.stats = null; kv.currentTime = 0; }
+function startOver(){ for(const n of kara.notes){ n.act = n.hit = n.close = 0; n.rated = false; n.voiced = 0; } kara.track = []; kara.stats = null; kara.pops = []; kara.combo = 0; kv.currentTime = 0; }
+// the guide sits over the video's own pitch bars when it has them; otherwise it can go at the top or the bottom
+settings.karaLanePos = settings.karaLanePos === 'bottom' ? 'bottom' : 'top';
+const setLanePosUI = () => { const b = $('#kLanePos'); b.textContent = settings.karaLanePos === 'bottom' ? 'Guide at bottom' : 'Guide at top'; b.setAttribute('aria-pressed', settings.karaLanePos === 'bottom' ? 'true' : 'false'); };
+$('#kLanePos').addEventListener('click', () => { settings.karaLanePos = settings.karaLanePos === 'bottom' ? 'top' : 'bottom'; saveSettings(); setLanePosUI(); });
+setLanePosUI();
 
 // ---- song end: score card, then the next song in queue mode
 kv.addEventListener('ended', () => {
@@ -3933,32 +3959,53 @@ function karaFrame(){
   const target = kara.song ? kTarget(tt) : null;
   let dev = null;
   if(sungMidi != null && target){ dev = ((sungMidi - (target.m + key)) % 12 + 18) % 12 - 6; }
-  if(kara.song && !kv.paused && !kv.seeking && target && m){
+  const live = kara.song && !kv.paused && !kv.seeking;
+  if(live && target && m){
     target.act++;
     if(sungMidi != null){ target.voiced = (target.voiced || 0) + 1; if(Math.abs(dev) <= 0.6) target.hit++; else if(Math.abs(dev) <= 1.3) target.close++; }
   }
-  if(sungMidi != null) kara.track.push({t:tt, m:sungMidi, ok:dev != null && Math.abs(dev) <= 0.6});
+  // each note gets a rating as soon as it is over
+  if(live && m && kara.lastTarget && kara.lastTarget !== target) rateNote(kara.lastTarget);
+  kara.lastTarget = target;
+  if(live) kara.track.push({t:tt, m:sungMidi, dev});
   while(kara.track.length && kara.track[0].t < tt - 6) kara.track.shift();
   if(m){ const r = scoreNow(); $('#kLive').textContent = r.total ? `Score ${r.score.toFixed(1)}` : (sungMidi != null ? 'Listening' : 'Sing along'); }
-  drawLane(t, tt, key, target);
+  drawLane(t, tt, key, target, sungMidi, dev);
   drawLyrics(t);
 }
-function drawLane(t, tt, key, target){
+const RATINGS = [[0.9, 'Perfect', '#8ef08e'], [0.7, 'Great', '#c6f07a'], [0.45, 'Good', '#ffe08a'], [0, 'Miss', '#ff8a7a']];
+function rateNote(n){
+  if(n.rated || n.act < 4) return;
+  n.rated = true;
+  const credit = Math.min(1, (n.hit + 0.5 * n.close) / n.act / 0.7);
+  const r = RATINGS.find(x => credit >= x[0]);
+  kara.combo = credit >= 0.45 ? kara.combo + 1 : 0;
+  kara.pops.push({n, text:r[1], color:r[2], at:performance.now()});
+  if(kara.pops.length > 8) kara.pops.shift();
+}
+// colours for the singer's line: on pitch, too high, too low, and between notes
+const TRACE = {on:'#7dfa8c', high:'#ff6a55', low:'#55b6ff', none:'rgba(255,255,255,0.55)'};
+const traceKind = dev => dev == null ? 'none' : Math.abs(dev) <= 0.6 ? 'on' : dev > 0 ? 'high' : 'low';
+function drawLane(t, tt, key, target, sungMidi, dev){
   const dpr = window.devicePixelRatio || 1, W2 = kstage.clientWidth, H2 = kstage.clientHeight;
   if(kcv.width !== Math.round(W2 * dpr) || kcv.height !== Math.round(H2 * dpr)){ kcv.width = Math.round(W2 * dpr); kcv.height = Math.round(H2 * dpr); }
   const c = kcv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W2, H2);
   if(!kara.song || !kara.notes.length) return;
   const vid = !kstage.classList.contains('novideo') && !kstage.classList.contains('audioonly');
   const vr = vid ? videoRect() : {x:0, y:0, w:W2, h:H2};
-  // cover the video's own pitch guide (found during import) with this lane
-  const st = kara.song.analysis && kara.song.analysis.staff;
-  const share = st ? Math.min(0.5, Math.max(0.24, (st[1] + 30) / 720)) : 0.36;
-  const L = {x:vr.x, y:vr.y, w:vr.w, h:vid ? vr.h * share : H2 * 0.48};
+  // cover the video's own pitch guide (found during import) with this lane; otherwise sit at the top or the bottom
+  const st = kara.song.guide !== 'vocals' && kara.song.analysis && kara.song.analysis.staff;
+  const share = st ? Math.min(0.5, Math.max(0.24, (st[1] + 30) / 720)) : 0.34;
+  const lh = vid ? vr.h * share : H2 * 0.48;
+  const bottom = vid && !st && settings.karaLanePos === 'bottom';
+  const L = {x:vr.x, y:bottom ? vr.y + vr.h - lh : vr.y, w:vr.w, h:lh};
   fitView(false);
   const lo = kara.view.lo, hi = kara.view.hi, span = hi - lo;
   const pps = L.w / 6, px0 = L.x + L.w * 0.22;
   const X = time => px0 + (time - t) * pps, Y = midi => L.y + L.h - 6 - (midi - lo) / span * (L.h - 12);
-  c.fillStyle = 'rgba(12,9,8,0.95)'; c.fillRect(L.x, L.y, L.w, L.h);
+  // see-through when the lane sits over lyrics, solid when it hides the video's own bars
+  c.fillStyle = st || !vid ? 'rgba(12,9,8,0.95)' : 'rgba(12,9,8,0.72)'; c.fillRect(L.x, L.y, L.w, L.h);
+  c.save(); c.beginPath(); c.rect(L.x, L.y, L.w, L.h); c.clip();
   c.lineWidth = 1;
   for(let p = Math.ceil(lo); p <= hi; p++){
     c.strokeStyle = p % 12 === 0 ? 'rgba(240,210,122,0.28)' : 'rgba(255,255,255,0.07)';
@@ -3970,21 +4017,75 @@ function drawLane(t, tt, key, target){
     const x0 = Math.max(L.x, X(n.t)), x1 = Math.min(L.x + L.w, X(n.e)), y = Y(n.m + key);
     if(x1 <= x0) continue;
     const done = n.e < tt, credit = n.act ? Math.min(1, (n.hit + 0.5 * n.close) / n.act / 0.7) : 0;
-    c.fillStyle = done ? (n.act ? (credit >= 0.5 ? 'rgba(120,214,120,0.95)' : 'rgba(255,255,255,0.28)') : 'rgba(240,210,122,0.35)')
+    c.fillStyle = done ? (n.act ? (credit >= 0.45 ? 'rgba(120,214,120,0.95)' : 'rgba(255,255,255,0.28)') : 'rgba(240,210,122,0.35)')
       : n === target ? '#ffe08a' : 'rgba(240,210,122,0.85)';
     const r = Math.min(hgt / 2, 6);
     c.beginPath(); c.roundRect ? c.roundRect(x0, y - hgt / 2, x1 - x0, hgt, r) : c.rect(x0, y - hgt / 2, x1 - x0, hgt); c.fill();
   }
-  // the singer's pitch, folded to the octave of the guide
-  for(const p of kara.track){
-    const ref = kTarget(p.t); const base = ref ? ref.m + key : (lo + hi) / 2;
-    let mm = p.m; while(mm - base > 6) mm -= 12; while(base - mm > 6) mm += 12;
-    if(mm < lo - 1 || mm > hi + 1) continue;
-    c.fillStyle = p.ok ? '#8ef08e' : '#ff9a5a';
-    c.fillRect(X(p.t) - 1.5, Y(mm) - 1.5, 3, 3);
+  // the original singer's exact line (slides and vibrato), thin, over the note bars
+  if(kara.contour.length){
+    c.strokeStyle = 'rgba(255,248,225,0.55)'; c.lineWidth = 1.5; c.lineJoin = 'round';
+    for(const [t0, step, vals] of kara.contour){
+      if(t0 > t + 5 || t0 + step * vals.length < t - 1.6) continue;
+      c.beginPath(); let pen = false;
+      vals.forEach((mv, i) => { const x = X(t0 + i * step); if(x < L.x - 4 || x > L.x + L.w + 4){ pen = false; return; } const y = Y(mv + key); if(pen) c.lineTo(x, y); else { c.moveTo(x, y); pen = true; } });
+      c.stroke();
+    }
   }
+  // the singer's own pitch as a line: green on pitch, red too high, blue too low (folded to the guide's octave)
+  const fold = (mm, base) => { while(mm - base > 6) mm -= 12; while(base - mm > 6) mm += 12; return mm; };
+  c.lineWidth = 3.5; c.lineCap = 'round'; c.lineJoin = 'round';
+  let prev = null;
+  for(const p of kara.track){
+    if(p.m == null){ prev = null; continue; }
+    const ref = kTarget(p.t), base = ref ? ref.m + key : (prev ? prev.mm : (lo + hi) / 2);
+    const mm = fold(p.m, base), x = X(p.t), y = Y(mm), kind = traceKind(ref ? p.dev : null);
+    if(prev && p.t - prev.t < 0.12 && Math.abs(mm - prev.mm) < 3){
+      c.strokeStyle = TRACE[kind]; c.beginPath(); c.moveTo(prev.x, prev.y); c.lineTo(x, y); c.stroke();
+    }
+    prev = {t:p.t, x, y, mm};
+  }
+  // ratings float up from the end of each finished note
+  const now = performance.now();
+  kara.pops = kara.pops.filter(pp => now - pp.at < 1100);
+  c.textAlign = 'center'; c.font = `700 ${Math.max(13, Math.min(20, L.h / 9))}px Barlow Condensed, sans-serif`;
+  for(const pp of kara.pops){
+    const a = 1 - (now - pp.at) / 1100, x = Math.min(L.x + L.w - 40, Math.max(L.x + 40, X(pp.n.e)));
+    c.globalAlpha = Math.max(0, a); c.fillStyle = pp.color;
+    c.fillText(pp.text, x, Y(pp.n.m + key) - hgt - 4 - (1 - a) * 18);
+  }
+  c.globalAlpha = 1;
+  // the playhead and the live pitch marker: an arrow tells which way to move
   c.strokeStyle = 'rgba(255,255,255,0.85)'; c.lineWidth = 2;
   c.beginPath(); c.moveTo(px0, L.y + 2); c.lineTo(px0, L.y + L.h - 2); c.stroke();
+  if(sungMidi != null){
+    const base = target ? target.m + key : (prev ? prev.mm : (lo + hi) / 2);
+    const mm = fold(sungMidi, base), y = Math.max(L.y + 8, Math.min(L.y + L.h - 8, Y(mm))), kind = traceKind(target ? dev : null);
+    c.fillStyle = TRACE[kind]; c.beginPath(); c.arc(px0, y, 7, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#120d0b'; c.lineWidth = 2; c.stroke();
+    if(kind === 'high' || kind === 'low'){
+      const dir = kind === 'high' ? 1 : -1, ay = y + dir * 13;   // points down when too high, up when too low
+      c.fillStyle = TRACE[kind]; c.beginPath(); c.moveTo(px0 - 7, ay - dir * 3); c.lineTo(px0 + 7, ay - dir * 3); c.lineTo(px0, ay + dir * 7); c.closePath(); c.fill();
+    }
+  }
+  c.restore();
+  // live readout: where you are against the note, the score so far, and the combo
+  c.textAlign = 'left'; c.font = `600 ${Math.max(12, Math.min(16, L.h / 12))}px Barlow, sans-serif`;
+  const by = d => d < 1 ? `${Math.round(d * 100)} cents` : `${Math.round(d)} semitone${Math.round(d) === 1 ? '' : 's'}`;
+  const cue = sungMidi == null ? (target ? 'Sing!' : '') : !target ? '' : Math.abs(dev) <= 0.6 ? 'On pitch' : dev > 0 ? `Too high, go down ${by(dev)}` : `Too low, go up ${by(-dev)}`;
+  if(cue){
+    const tw = c.measureText(cue).width, fs = Math.max(12, Math.min(16, L.h / 12));
+    c.fillStyle = 'rgba(12,9,8,0.8)'; c.fillRect(L.x + 4, L.y + 20 - fs, tw + 12, fs + 8);
+    c.fillStyle = sungMidi == null ? 'rgba(255,255,255,0.75)' : TRACE[traceKind(dev)]; c.fillText(cue, L.x + 10, L.y + 20);
+  }
+  if(kara.mic){
+    const r = scoreNow();
+    c.textAlign = 'right'; c.fillStyle = '#fff6d8';
+    c.font = `700 ${Math.max(18, Math.min(30, L.h / 6))}px Barlow Condensed, sans-serif`;
+    c.fillText(r.total ? r.score.toFixed(1) : '0.0', L.x + L.w - 12, L.y + 30);
+    c.font = `500 ${Math.max(11, Math.min(14, L.h / 13))}px Barlow, sans-serif`; c.fillStyle = 'rgba(255,246,216,0.75)';
+    c.fillText(`${r.total ? r.acc.toFixed(0) : 0}% on pitch${kara.combo > 2 ? ` · combo ${kara.combo}` : ''}`, L.x + L.w - 12, L.y + 48);
+  }
 }
 let lyricSig = '';
 function lineWipe(l, t){

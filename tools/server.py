@@ -25,13 +25,14 @@ class Jobs:
         self.n = 0
         threading.Thread(target=self.worker, daemon=True).start()
 
-    def add(self, kind, url):
+    def add(self, kind, url, opts=None):
+        opts = opts or {}
         with self.lock:
             for j in self.items:      # the same video already waiting or running
                 if j['url'] == url and j['kind'] == kind and j['state'] in ('waiting', 'running'):
                     return j
             self.n += 1
-            j = {'id': self.n, 'kind': kind, 'url': url, 'state': 'waiting', 'stage': '', 'progress': 0,
+            j = {'id': self.n, 'kind': kind, 'url': url, 'opts': opts, 'state': 'waiting', 'stage': '', 'progress': 0,
                  'message': 'Waiting to start', 'song': None, 'added': time.time()}
             self.items.append(j)
             self.items = self.items[-50:]
@@ -48,6 +49,8 @@ class Jobs:
             j['state'] = 'running'
             j['message'] = 'Starting'
             cmd = [sys.executable, os.path.join(HERE, KINDS[j['kind']]), j['url'], '--media', self.media]
+            for k, v in (j.get('opts') or {}).items():
+                cmd += [f'--{k}', v]
             try:
                 # low priority, so singing along to the current song stays smooth while the next ones are prepared
                 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -94,6 +97,7 @@ def read_songs(media, kind):
             continue
         out.append({'id': s.get('id', d), 'title': s.get('title'), 'artist': s.get('artist'), 'duration': s.get('duration'),
                     'created': s.get('created'), 'notes': len(s.get('notes') or []), 'lyrics': len(s.get('lyrics') or []),
+                    'guide': s.get('guide'),
                     'video': f'media/{kind}/{d}/{s.get("video", "video.mp4")}', 'song': f'media/{kind}/{d}/song.json'})
     out.sort(key=lambda s: -(s.get('created') or 0))
     return out
@@ -157,7 +161,8 @@ def make_handler(root, media, jobs, port):
                     return
                 if path == '/api/info':
                     self.send_json({'ok': True, 'media': media, 'ollama': ollama_up(),
-                                    'ffmpeg': bool(shutil.which('ffmpeg')), 'kinds': list(KINDS)})
+                                    'ffmpeg': bool(shutil.which('ffmpeg')), 'kinds': list(KINDS),
+                                    'separator': os.path.exists(os.path.join(media, 'vocal-venv', 'bin', 'python'))})
                 elif path == '/api/library':
                     self.send_json({k: read_songs(media, k) for k in KINDS})
                 elif path == '/api/jobs':
@@ -201,7 +206,21 @@ def make_handler(root, media, jobs, port):
                 if kind not in KINDS or not re.match(r'^https?://[^\s]+$', url) or len(url) > 500:
                     self.send_json({'error': 'Give a video link that starts with http:// or https://'}, 400)
                     return
-                self.send_json(jobs.add(kind, url))
+                opts = {}
+                if kind == 'karaoke':
+                    method = body.get('method') or 'auto'
+                    original = str(body.get('original') or '').strip()
+                    if method not in ('auto', 'vocals', 'bars'):
+                        self.send_json({'error': 'Unknown pitch guide method'}, 400)
+                        return
+                    if original and (not re.match(r'^https?://[^\s]+$', original) or len(original) > 500):
+                        self.send_json({'error': 'The original song link should start with http:// or https://'}, 400)
+                        return
+                    if method != 'auto':
+                        opts['method'] = method
+                    if original:
+                        opts['original'] = original
+                self.send_json(jobs.add(kind, url, opts))
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
