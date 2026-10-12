@@ -423,25 +423,50 @@ def medfilt(v, k):
         return np.nanmedian(w, 1)
 
 
-def clean_pitch(midi, ap, rms):
-    """Keep confident, loud-enough frames; fix octave slips; smooth lightly."""
-    loud = np.percentile(rms[rms > 0], 95) if (rms > 0).any() else 1
-    voiced = (ap < 0.3) & (rms > loud * 0.06) & np.isfinite(midi)
+def frame_rms(x, hop=HOP, win=640):
+    n = max(1, (len(x) - win) // hop)
+    view = np.lib.stride_tricks.sliding_window_view(x, win)[np.arange(n) * hop]
+    return np.sqrt((view.astype(np.float64) ** 2).mean(1) + 1e-12)
+
+
+def vocal_pitch(midi, ap, xv, xo, ratio_db=-16.0, gap=0.25):
+    """Decide where the singer is actually singing and clean up the pitch line.
+
+    Singing means YIN found a periodic pitch AND the separated vocal is a real part of the original
+    mix there (not just instrument bleed left in the stem, which is far quieter than the mix).
+    Then: octave slips are folded back, tiny islands dropped, short dropouts inside a phrase bridged,
+    and the line is lightly smoothed. Returns (pitch line in semitones, vocal-to-mix ratio in dB)."""
+    n = len(midi)
+    rv, ro = frame_rms(xv)[:n], frame_rms(xo)[:n]
+    if len(rv) < n:
+        rv, ro = np.pad(rv, (0, n - len(rv))), np.pad(ro, (0, n - len(ro)))
+    ratio = 20 * np.log10(np.maximum(rv, 1e-9) / np.maximum(ro, 1e-9))
+    loud = np.percentile(rv, 95) if len(rv) else 1
+    voiced = np.isfinite(midi) & (ap < 0.35) & (ratio > ratio_db) & (rv > loud * 0.03)
     m = np.where(voiced, midi, np.nan)
-    # octave slips: a short run an octave away from its neighbourhood gets folded back
-    ref = medfilt(m, 51)
-    for k in (12, -12):
-        slip = np.isfinite(ref) & (np.abs(m - ref - k) < 2.5)
+    ref = medfilt(m, 61)
+    for k in (12, -12, 24, -24):
+        slip = np.isfinite(ref) & (np.abs(m - ref - k) < 3)
         m[slip] -= k
-    m = medfilt(m, 5)
-    m[~voiced] = np.nan
-    # drop islands shorter than 60 ms
     v = np.isfinite(m)
     d = np.diff(np.r_[0, v.astype(np.int8), 0])
-    for s, e in zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]):
-        if e - s < 6:
-            m[s:e] = np.nan
-    return m
+    for s0, e0 in zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]):
+        if e0 - s0 < 5:
+            m[s0:e0] = np.nan
+    g, i = int(gap * SR / HOP), 0
+    while i < n:
+        if np.isnan(m[i]):
+            j = i
+            while j < n and np.isnan(m[j]):
+                j += 1
+            if 0 < i and j < n and j - i <= g and abs(m[i - 1] - m[j]) < 2.5:
+                m[i:j] = np.linspace(m[i - 1], m[j], j - i + 2)[1:-1]
+            i = j
+        else:
+            i += 1
+    ms = medfilt(m, 9)
+    ms[np.isnan(m)] = np.nan
+    return ms, ratio
 
 
 def tuning_offset(m):
@@ -453,47 +478,102 @@ def tuning_offset(m):
     return float(np.angle(np.exp(1j * ang).mean()) / (2 * np.pi))
 
 
-def to_notes(m, dt=HOP / SR, tol=0.75, mindur=0.09):
-    """Split the pitch line into notes: a note holds while the pitch stays near its running median."""
-    notes, i, n = [], 0, len(m)
+def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.1, note_db=-12.5):
+    """Split the pitch line into karaoke-style notes.
+    A new note starts only when the pitch stays more than 0.7 semitone from the current one for 60 ms,
+    so vibrato and scoops do not chop a held note. Fragments shorter than minnote join the neighbour
+    nearest in pitch, notes where the vocal is too quiet against the mix are dropped (bleed), and a note
+    an octave away from the notes around it is moved back."""
+    n = len(m)
+    notes, i = [], 0
     while i < n:
         if not np.isfinite(m[i]):
             i += 1
             continue
-        j = i
-        while j + 1 < n and np.isfinite(m[j + 1]) and abs(m[j + 1] - np.median(m[max(i, j - 15):j + 1])) < tol:
+        head = m[i:i + 5]
+        cur = int(round(float(np.median(head[np.isfinite(head)]))))
+        start, j, run0 = i, i, None
+        while j < n and np.isfinite(m[j]):
+            if abs(m[j] - cur) > 0.7:
+                run0 = j if run0 is None else run0
+                if j - run0 + 1 >= 6:
+                    notes.append([start * dt, run0 * dt, cur])
+                    start, cur, run0 = run0, int(round(float(np.median(m[run0:j + 1])))), None
+            else:
+                run0 = None
             j += 1
-        seg = m[i:j + 1]
-        if (j - i + 1) * dt >= mindur:
-            notes.append([i * dt, (j + 1) * dt, float(np.median(seg))])
-        i = j + 1
+        notes.append([start * dt, j * dt, cur])
+        i = j
+    changed = True
+    while changed:
+        changed = False
+        for k, (a, b, p) in enumerate(notes):
+            if b - a >= minnote:
+                continue
+            L = notes[k - 1] if k > 0 and a - notes[k - 1][1] < 0.03 else None
+            R = notes[k + 1] if k + 1 < len(notes) and notes[k + 1][0] - b < 0.03 else None
+            if L or R:
+                tgt = min([x for x in (L, R) if x], key=lambda x: abs(x[2] - p))
+                if tgt is L:
+                    L[1] = b
+                else:
+                    R[0] = a
+            notes.pop(k)
+            changed = True
+            break
+    if ratio is not None:
+        notes = [x for x in notes if np.median(ratio[int(x[0] / dt):max(int(x[0] / dt) + 1, int(x[1] / dt))]) >= note_db]
+    for _ in range(2):
+        for k, (a, b, p) in enumerate(notes):
+            ctx = [(x[1] - x[0], x[2]) for j2, x in enumerate(notes) if j2 != k and abs(x[0] - a) < 3]
+            if len(ctx) < 2:
+                continue
+            w = np.array([c[0] for c in ctx])
+            vals = np.array([c[1] for c in ctx])
+            o = np.argsort(vals)
+            med = float(vals[o][np.searchsorted(np.cumsum(w[o]), w.sum() / 2)])
+            if abs(p - med) >= 9:
+                for kk in (12, -12):
+                    if abs(p + kk - med) <= 6:
+                        notes[k][2] = p + kk
+                        break
     out = []
-    for s, e, p in notes:   # join repeats of one pitch split by a tiny gap (a breath of vibrato)
-        q = int(round(p))
-        if out and out[-1][2] == q and s - out[-1][1] < 0.07:
-            out[-1][1] = e
+    for a, b, p in notes:
+        if out and out[-1][2] == p and a - out[-1][1] < 0.1:
+            out[-1][1] = b
         else:
-            out.append([s, e, q])
+            out.append([a, b, p])
     return out
 
 
-def contour(m, K, dt=HOP / SR, step=0.05):
-    """The sung line every 50 ms on the karaoke timeline, for drawing the guide's fine shape (slides, vibrato).
+def contour(m, notes, K, dt=HOP / SR, step=0.05):
+    """The sung line every 50 ms on the karaoke timeline, for drawing the guide's fine shape (slides,
+    vibrato). Only drawn inside notes, folded into each note's octave so it never jumps away from the bars.
     Stored as runs: [[start time, step, [midi, ...]], ...] so silences take no space."""
     k = int(round(step / dt))
-    runs, cur = [], None
-    for i in range(0, len(m) - k + 1, k):
-        seg = m[i:i + k]
-        v = seg[np.isfinite(seg)]
-        if len(v) > k // 2:
-            val = round(float(np.median(v)), 2)
-            if cur is None:
-                t0, t1 = K(i * dt), K((i + 400) * dt)
-                cur = [round(t0, 3), round((t1 - t0) / 400 * k, 4), []]
-                runs.append(cur)
-            cur[2].append(val)
-        else:
-            cur = None
+    runs = []
+    for a, b, p in notes:
+        i0, i1 = int(a / dt), int(b / dt)
+        vals = []
+        for i in range(i0, max(i0 + 1, i1 - k + 1), k):
+            seg = m[i:i + k]
+            v = seg[np.isfinite(seg)]
+            if len(v) <= k // 2:
+                vals.append(round(float(p), 2))
+                continue
+            x = float(np.median(v))
+            while x - p > 6:
+                x -= 12
+            while p - x > 6:
+                x += 12
+            # a glitch far from the note is not part of the sung line: hold the last good value
+            vals.append(round(x, 2) if abs(x - p) <= 2.5 else (vals[-1] if vals else round(float(p), 2)))
+        if len(vals) >= 3:
+            sm = [vals[0]] + [sorted(vals[q - 1:q + 2])[1] for q in range(1, len(vals) - 1)] + [vals[-1]]
+            vals = [round(float(x), 2) for x in sm]
+        t0, t1 = K(a), K(b)
+        if vals and t1 > t0:
+            runs.append([round(t0, 3), round((t1 - t0) / len(vals), 4), vals])
     return runs
 
 
@@ -540,11 +620,11 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
     voc = separate(media, best['path'], os.path.join(work, f'vocals-{best["id"]}.wav'))
     say('pitch', 0.75, 'Following the sung pitch')
     x = load_audio(voc, SR)
-    midi, ap, rms = yin_track(x)
-    m = clean_pitch(midi, ap, rms)
+    midi, ap, _ = yin_track(x, thr=0.25)
+    m, ratio = vocal_pitch(midi, ap, x, load_audio(best['path'], SR))
     tune = tuning_offset(m)
     m = m - tune + best['shift']
-    notes = to_notes(m)
+    notes = to_notes(m, ratio)
     if len(notes) < 10:
         raise RuntimeError('too little singing was found in the original song')
     to, tk = best['map']
@@ -566,7 +646,7 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
                 'offset': round(float(np.median(offs)), 3), 'drift': round(float(offs.max() - offs.min()), 2),
                 'key_shift': best['shift'], 'match': round(best['match'], 3), 'gain': round(best['gain'], 3),
                 'tuning_cents': round(tune * 100), 'query': q, 'phrases': phrases, 'phrases_on_wipe': snapped}
-    return out, contour(m, K), analysis
+    return out, contour(m, notes, K), analysis
 
 
 def main():
