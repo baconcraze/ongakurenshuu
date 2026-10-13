@@ -1,6 +1,6 @@
 # Ongaku Renshuu (音楽練習)
 
-A free, MIT-licensed tab player for practicing guitar and bass. It runs entirely on your computer in your browser.
+A free, MIT-licensed tab player for practicing guitar and bass, with a karaoke mode that turns any karaoke video into a pitch guide and scores your singing. It runs entirely on your computer in your browser.
 
 ## Install
 
