@@ -5,6 +5,10 @@ The karaoke track itself has no lead vocal, so this finds the original song on Y
 the link you give it), lines it up with the karaoke audio, separates the vocal with Demucs, follows
 the sung pitch, and turns it into notes on the karaoke video's timeline.
 
+Lining up is done by comparing the two recordings: chroma (the harmony) finds the offset in short
+windows to about 0.1 s, then the beats (onset envelopes) sharpen it to about 10 ms. Fast melodies
+need that: a guide 0.1 s late shows the previous note for a third of a short one.
+
 Used by karaoke.py, which falls back to reading the video's own pitch bars when this fails.
 Run on its own for testing: vocalguide.py KARAOKE_MEDIA_FILE --title TITLE [--original URL]
 """
@@ -154,90 +158,163 @@ def global_match(Ck, Co, max_lag=90.0):
     return lag, shift, corr, corr - chance
 
 
-def warp(Ck, Co, lag, band_s=10.0):
-    """Dynamic time warping inside a band around the global offset, so tempo drift and sections of a
-    different length in the karaoke arrangement are followed. Steps (1,1), (1,2), (2,1) keep each row
-    depending only on earlier rows, which lets numpy do a whole row at once.
-    Returns the path as arrays of (karaoke frame, original frame)."""
-    nI, nJ = len(Ck), len(Co)
-    band = int(band_s / (CHOP / CSR))
-    W = 2 * band + 1
-    INF = 1e9
-    cols = lambda i: i - lag - band + np.arange(W)
-    D = np.full((nI, W), INF)
-    P = np.zeros((nI, W), np.int8)
-    for i in range(nI):
-        j = cols(i)
-        ok = (j >= 0) & (j < nJ)
-        cost = np.full(W, INF)
-        cost[ok] = 1 - (Ck[i] * Co[j[ok]]).sum(1)
-        start = cost if i < band or (j[ok].size and j[ok].min() < band) else np.full(W, INF)
-        if i == 0:
-            D[i] = cost
-            P[i] = 3
-            continue
-        a = D[i - 1]
-        b = np.r_[INF, D[i - 1][:-1]]
-        c = np.r_[D[i - 2][1:], INF] if i >= 2 else np.full(W, INF)
-        st = np.vstack([a, b, c])
-        k = st.argmin(0)
-        best = st[k, np.arange(W)] + cost
-        free = start < best
-        D[i] = np.where(free, start, best)
-        P[i] = np.where(free, 3, k)
-    # the path may end anywhere near the end of either recording
-    ends = [(D[i, w] / (i + 1), i, w) for i in range(max(0, nI - band), nI) for w in range(W)
-            if D[i, w] < INF and (i == nI - 1 or cols(i)[w] >= nJ - 2)]
-    if not ends:      # the recordings end far apart: take the best point near the end of either one
-        fin = np.argwhere(D < INF)
-        near = [(i, w) for i, w in fin if i >= nI - 2 * band or cols(i)[w] >= nJ - 2 * band]
-        ends = [(D[i, w] / (i + 1), i, w) for i, w in near]
-    if not ends:
-        raise RuntimeError('the recordings could not be lined up')
-    _, i, w = min(ends)
-    path = []
-    while i >= 0 and 0 <= w < W:
-        path.append((i, int(cols(i)[w])))
-        k = P[i, w]
-        if k == 3:
-            break
-        if k == 0:
-            i -= 1
-        elif k == 1:
-            i, w = i - 1, w - 1
-        else:
-            i, w = i - 2, w + 1
-    path = np.array(path[::-1])
-    return path[:, 0], path[:, 1]
-
-
-def time_map(ki, oj, smooth_s=12.0):
-    """Turn the warping path into a smooth original-time to karaoke-time map (seconds), robust to the
-    path's frame-to-frame jitter: the offset is median-filtered along the original's timeline."""
+def window_lags(Ck, Co, prior, reach, win_s=10.0, hop_s=1.0):
+    """The karaoke-minus-original offset measured in short windows of the original.
+    prior(t) gives the expected offset at original time t (seconds); each window searches reach seconds
+    either side of it. Returns arrays (window centre, offset, correlation, margin over the next best
+    peak at least 0.6 s away), with the offset refined between frames."""
     dt = CHOP / CSR
-    to = oj * dt
-    off = (ki - oj) * dt
-    grid = np.arange(0, to.max() + dt, dt)
-    o = np.interp(grid, to, off)
-    k = int(smooth_s / dt) | 1
-    if len(o) > k:
-        o = medfilt(o, k)
-        m = (k // 2) | 1
-        o = np.convolve(np.pad(o, m // 2, mode='edge'), np.ones(m) / m, 'valid')
-    tk = np.maximum.accumulate(grid + o)
-    return grid, tk
+    Wn, hop, R = int(win_s / dt), int(hop_s / dt), int(reach / dt)
+    out = []
+    for j in range(0, max(1, len(Co) - Wn), hop):
+        seg = Co[j:j + Wn]
+        c0 = int(round(prior((j + Wn / 2) * dt) / dt)) + j
+        lo, hi = max(0, c0 - R), min(len(Ck) - Wn, c0 + R)
+        if hi - lo < 3:
+            continue
+        idx = np.arange(lo, hi + 1)
+        # correlation of this window against every placement in the karaoke track
+        V = np.lib.stride_tricks.sliding_window_view(Ck[lo:hi + Wn], Wn, axis=0)     # (n, 12, Wn)
+        sc = np.einsum('nkw,wk->n', V, seg) / Wn
+        b = int(np.argmax(sc))
+        if b in (0, len(sc) - 1) and (lo > c0 - R or hi < c0 + R):
+            continue                  # pushed against the start or end of the karaoke track: no real match
+        far = np.abs(idx - idx[b]) * dt >= 0.6
+        margin = float(sc[b] - (sc[far].max() if far.any() else 0))
+        f = 0.0
+        if 0 < b < len(sc) - 1:
+            den = sc[b - 1] - 2 * sc[b] + sc[b + 1]
+            f = 0.5 * (sc[b - 1] - sc[b + 1]) / den if den < 0 else 0.0
+        out.append(((j + Wn / 2) * dt, (idx[b] + f - j) * dt, float(sc[b]), margin))
+    return np.array(out).reshape(-1, 4)
+
+
+def running_median(t, v, w, span):
+    """Median of the values whose time lies within span/2 of each point, weighted by w."""
+    out = np.empty(len(v))
+    for i, ti in enumerate(t):
+        k = np.abs(t - ti) <= span / 2
+        o = np.argsort(v[k])
+        cw = np.cumsum(w[k][o])
+        out[i] = v[k][o][np.searchsorted(cw, cw[-1] / 2)]
+    return out
+
+
+def offset_map(Ck, Co, lag, dur_o):
+    """Original time to karaoke time, from window offsets rather than one long warping path.
+    Karaoke tracks are usually played at the original tempo, so the offset changes slowly; a warping path
+    on its own wanders where the two versions differ (intros, endings, a repeated phrase that matches the
+    wrong repeat). Here every window is matched near the overall offset, unclear windows are dropped,
+    stray ones are voted out by their neighbours, and the ends hold the nearest good value."""
+    dt = CHOP / CSR
+    g = lag * dt
+    wl = window_lags(Ck, Co, lambda t: g, 8.0)
+    good = (wl[:, 2] > 0.45) & (wl[:, 3] > 0.03)
+    if good.sum() < 5:
+        return np.array([0.0, dur_o]), np.array([g, g])
+    t, o, w = wl[good, 0], wl[good, 1], wl[good, 2] * (wl[good, 3] + 0.02)
+    smooth = running_median(t, o, w, 24.0)
+    keep = np.abs(o - smooth) < 0.5          # a window that matched another repeat of the phrase
+    t, o, w = t[keep], o[keep], w[keep]
+    # second pass: each window again, now searching only near the trusted line
+    prior = lambda x: float(np.interp(x, t, running_median(t, o, w, 16.0)))
+    wl = window_lags(Ck, Co, prior, 0.6, win_s=8.0, hop_s=0.5)
+    good = (wl[:, 2] > 0.45) & (wl[:, 3] > 0.0)
+    if good.sum() >= 5:
+        t2, o2, w2 = wl[good, 0], wl[good, 1], wl[good, 2]
+        ok = np.abs(o2 - np.array([prior(x) for x in t2])) < 0.45
+        if ok.sum() >= 5:
+            t, o, w = t2[ok], o2[ok], w2[ok]
+    o = running_median(t, o, w, 6.0)
+    return t, o
+
+
+OHOP = 110            # onset envelope hop, 10 ms at CSR
+
+
+def onset_env(x, n=1024):
+    """Spectral flux every 10 ms: where notes and drum hits start. Sharper in time than chroma."""
+    win = np.hanning(n).astype(np.float32)
+    count = max(1, (len(x) - n) // OHOP)
+    view = np.lib.stride_tricks.sliding_window_view(x, n)
+    prev, out = None, np.zeros(count, np.float32)
+    for i0 in range(0, count, 2048):
+        idx = np.arange(i0, min(count, i0 + 2048))
+        S = np.log1p(20 * np.abs(np.fft.rfft(view[idx * OHOP] * win, axis=1)))
+        D = np.diff(np.vstack([S[:1] if prev is None else prev, S]), axis=0)
+        out[idx] = np.maximum(D, 0).sum(1)
+        prev = S[-1:]
+    out -= np.convolve(out, np.ones(51) / 51, 'same')
+    return np.maximum(out, 0)
+
+
+def refine_onsets(Ek, Eo, t, o, reach=0.15, win_s=8.0, hop_s=1.0, pool_s=15.0):
+    """Sharpen the offset to about 10 ms by matching the onset envelopes near the chroma estimate.
+    The search stays inside reach seconds, under a beat. Within that, a pattern that repeats every eighth
+    note can still match one step off in a single window, so each window's scores are pooled with its
+    neighbours' before the best offset is picked: the true offset scores well all along, a slip only here and there."""
+    dt = OHOP / CSR
+    Wn, R = int(win_s / dt), int(reach / dt)
+    lo_all = int(np.floor((o.min() - reach) / dt)) - 1
+    nL = int(np.ceil((o.max() + reach) / dt)) + 2 - lo_all
+    cs, rows = [], []
+    for c in np.arange(win_s / 2, len(Eo) * dt - win_s / 2, hop_s):
+        j = int((c - win_s / 2) / dt)
+        seg = Eo[j:j + Wn]
+        if seg.std() < 1e-6:
+            continue
+        seg = (seg - seg.mean()) / seg.std()
+        g0 = int(round(float(np.interp(c, t, o)) / dt))
+        lags = np.arange(g0 - R, g0 + R + 1)
+        lags = lags[(j + lags >= 0) & (j + lags + Wn <= len(Ek))]
+        if len(lags) < 3:
+            continue
+        V = np.lib.stride_tricks.sliding_window_view(Ek[j + lags[0]:j + lags[-1] + Wn], Wn)
+        V = (V - V.mean(1, keepdims=True)) / (V.std(1, keepdims=True) + 1e-9)
+        row = np.full(nL, np.nan)
+        row[lags - lo_all] = V @ seg / Wn
+        cs.append(c)
+        rows.append(row)
+    if len(cs) < 5:
+        return t, o, False
+    cs, M = np.array(cs), np.array(rows)
+    pt, po, pw = [], [], []
+    with np.errstate(all='ignore'), __import__('warnings').catch_warnings():
+        __import__('warnings').simplefilter('ignore', RuntimeWarning)
+        for i, c in enumerate(cs):
+            near = np.abs(cs - c) <= pool_s
+            pooled = np.nanmean(M[near], 0)
+            own = np.isfinite(M[i])
+            if own.sum() < 3:
+                continue
+            k = np.nonzero(own)[0]
+            b = k[np.argmax(pooled[k])]
+            if pooled[b] < 0.15 or b in (k[0], k[-1]):      # weak, or the best is at the edge of the search
+                continue
+            pt.append(c)
+            po.append((b + lo_all) * dt)
+            pw.append(float(pooled[b]))
+    if len(pt) < 5:
+        return t, o, False
+    pt, po, pw = np.array(pt), np.array(po), np.array(pw)
+    return pt, running_median(pt, po, pw, 20.0), True
 
 
 def align(kara, orig):
     """Line the original up with the karaoke track.
     Returns (original times, karaoke times) for mapping, key shift (karaoke = original + shift),
-    correlation, and gain over chance (about 0.2 for the same song, under 0.1 for others)."""
+    correlation, gain over chance (about 0.2 for the same song, under 0.1 for others), and whether the
+    timing was sharpened to about 10 ms from the beats (False leaves it at about 0.1 s)."""
     Ck, Co0 = chroma(kara), chroma(orig)
     lag, shift, corr, gain = global_match(Ck, Co0)
     Co = np.roll(Co0, shift, axis=1)
-    ki, oj = warp(Ck, Co, lag)
-    to, tk = time_map(ki, oj)
-    return to, tk, shift, corr, gain
+    dur_o = len(orig) / CSR
+    t, o = offset_map(Ck, Co, lag, dur_o)
+    t, o, fine = refine_onsets(onset_env(kara), onset_env(orig), t, o)
+    dt = CHOP / CSR
+    to = np.arange(0, dur_o + dt, dt)
+    tk = np.maximum.accumulate(to + np.interp(to, t, o))     # constant beyond the first and last good window
+    return to, tk, shift, corr, gain, fine
 
 
 # ---------------------------------------------------------------- the karaoke video's lyric wipe
@@ -522,7 +599,19 @@ def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.1, note_db=-12.5):
             changed = True
             break
     if ratio is not None:
-        notes = [x for x in notes if np.median(ratio[int(x[0] / dt):max(int(x[0] / dt) + 1, int(x[1] / dt))]) >= note_db]
+        # judge each note by its sung part: a clearly sung note whose line runs on into a quiet tail
+        # (the voice fading under the band) is trimmed, not thrown away with the tail
+        kept = []
+        for a, b, p in notes:
+            i0 = int(a / dt)
+            r = ratio[i0:max(i0 + 1, int(b / dt))]
+            ok = np.nonzero(r >= note_db)[0]
+            if not len(ok):
+                continue
+            s0, s1 = ok[0], ok[-1] + 1
+            if (s1 - s0) * dt >= 0.06 and np.median(r[s0:s1]) >= note_db:
+                kept.append([(i0 + s0) * dt, (i0 + s1) * dt, p])
+        notes = kept
     for _ in range(2):
         for k, (a, b, p) in enumerate(notes):
             ctx = [(x[1] - x[0], x[2]) for j2, x in enumerate(notes) if j2 != k and abs(x[0] - a) < 3]
@@ -600,11 +689,11 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
             err = str(e)
             continue
         try:
-            to, tk, shift, corr, gain = align(xk, load_audio(path, CSR))
+            to, tk, shift, corr, gain, fine = align(xk, load_audio(path, CSR))
         except Exception as e:
             err = f'{c["title"]} could not be compared: {e}'
             continue
-        c.update(path=path, map=(to, tk), shift=shift, match=corr, gain=gain)
+        c.update(path=path, map=(to, tk), shift=shift, match=corr, gain=gain, fine=fine)
         say('original', 0.1 + 0.2 * (i + 1) / len(cands), f'Compared {i + 1} of {len(cands)} recordings')
         if best is None or gain > best['gain']:
             best = c
@@ -629,12 +718,17 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
         raise RuntimeError('too little singing was found in the original song')
     to, tk = best['map']
     K0 = lambda t: float(np.interp(t, to, tk))
-    say('align', 0.78, 'Reading the lyric wipe to fine-tune the timing')
-    try:
-        onsets = wipe_onsets(wipe_activity(kara_path, duration, procs))
-    except Exception:
-        onsets = np.array([])
-    K, snapped, phrases = snap_phrases(notes, K0, onsets)
+    if best['fine']:
+        # the beats already line the two recordings up to about 10 ms; the lyric wipe usually runs a little
+        # ahead of the voice, so snapping to it would only make the timing worse
+        K, snapped, phrases = K0, 0, 0
+    else:
+        say('align', 0.78, 'Reading the lyric wipe to fine-tune the timing')
+        try:
+            onsets = wipe_onsets(wipe_activity(kara_path, duration, procs))
+        except Exception:
+            onsets = np.array([])
+        K, snapped, phrases = snap_phrases(notes, K0, onsets)
     out = []
     for s0, e0, p in notes:
         a, b = K(s0), K(e0)
@@ -645,7 +739,8 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
     analysis = {'method': 'vocals', 'original': {k: best.get(k) for k in ('id', 'title', 'channel', 'url', 'duration')},
                 'offset': round(float(np.median(offs)), 3), 'drift': round(float(offs.max() - offs.min()), 2),
                 'key_shift': best['shift'], 'match': round(best['match'], 3), 'gain': round(best['gain'], 3),
-                'tuning_cents': round(tune * 100), 'query': q, 'phrases': phrases, 'phrases_on_wipe': snapped}
+                'tuning_cents': round(tune * 100), 'query': q, 'timing': 'beats' if best['fine'] else 'chroma',
+                'phrases': phrases, 'phrases_on_wipe': snapped}
     return out, contour(m, notes, K), analysis
 
 
