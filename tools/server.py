@@ -14,6 +14,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 KINDS = {'karaoke': 'karaoke.py', 'piano': 'pianovideo.py'}
+# follow-up jobs the server queues by itself: (script, extra arguments)
+FOLLOW = {'lyrics': ('karaoke.py', ['--lyrics-text'])}
 
 
 class Jobs:
@@ -48,7 +50,8 @@ class Jobs:
             j = self.q.get()
             j['state'] = 'running'
             j['message'] = 'Starting'
-            cmd = [sys.executable, os.path.join(HERE, KINDS[j['kind']]), j['url'], '--media', self.media]
+            script, extra = FOLLOW.get(j['kind']) or (KINDS[j['kind']], [])
+            cmd = [sys.executable, os.path.join(HERE, script), j['url'], '--media', self.media] + extra
             for k, v in (j.get('opts') or {}).items():
                 cmd += [f'--{k}', v]
             try:
@@ -71,6 +74,9 @@ class Jobs:
                 j['state'] = 'done' if p.returncode == 0 else 'failed'
                 if p.returncode == 0:
                     j['song'] = song_id(j['url'])
+                    # the lyric text is read last, behind any other songs waiting to be imported
+                    if j['kind'] == 'karaoke' and 'no-lyrics' not in (j.get('opts') or {}) and ollama_up():
+                        self.add('lyrics', j['url'])
             except Exception as e:
                 j['state'] = 'failed'
                 j['message'] = str(e)
@@ -109,6 +115,14 @@ def ollama_up(url='http://127.0.0.1:11434'):
         return True
     except Exception:
         return False
+
+
+def app_version(root):
+    try:
+        with open(os.path.join(root, 'VERSION'), encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return ''
 
 
 def make_handler(root, media, jobs, port):
@@ -162,7 +176,8 @@ def make_handler(root, media, jobs, port):
                 if path == '/api/info':
                     self.send_json({'ok': True, 'media': media, 'ollama': ollama_up(),
                                     'ffmpeg': bool(shutil.which('ffmpeg')), 'kinds': list(KINDS),
-                                    'separator': os.path.exists(os.path.join(media, 'vocal-venv', 'bin', 'python'))})
+                                    'separator': os.path.exists(os.path.join(media, 'vocal-venv', 'bin', 'python')),
+                                    'version': app_version(root)})
                 elif path == '/api/library':
                     self.send_json({k: read_songs(media, k) for k in KINDS})
                 elif path == '/api/jobs':

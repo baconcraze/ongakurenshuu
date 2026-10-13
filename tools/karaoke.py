@@ -14,6 +14,7 @@ Usage: karaoke.py URL_OR_FILE [--media DIR] [--method auto|vocals|bars] [--origi
 Progress is printed as JSON lines: {"stage": ..., "progress": 0..1, "message": ...}
 """
 import argparse, base64, io, json, os, re, shutil, subprocess, sys, time, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Pool
 
 import numpy as np
@@ -24,8 +25,15 @@ FPS = 8                   # analysis frame rate
 PAD = 14                  # rows kept above and below the staff
 
 
+_SAY = __import__('threading').Lock()
+
+
 def say(stage, progress=None, message=''):
-    print(json.dumps({'stage': stage, 'progress': progress, 'message': message}, ensure_ascii=False), flush=True)
+    # one write per line, so progress from parallel steps never runs together
+    line = json.dumps({'stage': stage, 'progress': progress, 'message': message}, ensure_ascii=False) + '\n'
+    with _SAY:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 # ---------------------------------------------------------------- video access
@@ -757,15 +765,40 @@ def _lyric_chunk(args):
     return out
 
 
-def extract_lyric_lines(path, dur, ytop, procs):
+class LinesProcess:
+    """extract_lyric_lines in a separate process; result() waits for its lines."""
+    def __init__(self, *args):
+        import multiprocessing as mp
+        self.recv, send = mp.Pipe(False)
+        self.p = mp.Process(target=self._run, args=(send,) + args)
+        self.p.start()
+
+    @staticmethod
+    def _run(send, path, dur, ytop, procs):
+        try:
+            send.send(extract_lyric_lines(path, dur, ytop, procs, quiet=True))
+        except Exception as e:
+            send.send(e)
+
+    def result(self):
+        r = self.recv.recv()
+        self.p.join()
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+def extract_lyric_lines(path, dur, ytop, procs, quiet=False):
     n = procs * 2
     L = dur / n
     jobs = [(path, i * L, L, ytop) for i in range(n)]
     rec = []
-    with Pool(procs) as p:
+    # when quiet, this runs beside the pitch guide; lower priority keeps the vocal separator fed
+    with Pool(procs, initializer=os.nice if quiet else None, initargs=(10,) if quiet else ()) as p:
         for k, part in enumerate(p.imap_unordered(_lyric_chunk, jobs)):
             rec += part
-            say('lyrics', 0.05 + 0.35 * (k + 1) / n, 'Finding the lyric lines')
+            if not quiet:
+                say('lyrics', 0.05 + 0.35 * (k + 1) / n, 'Finding the lyric lines')
     rec.sort(key=lambda r: r[0])
     # track lines: same place on screen and a similar edge signature
     tracks, live = [], []
@@ -781,10 +814,11 @@ def extract_lyric_lines(path, dur, ytop, procs):
                         match = tr
                         break
             if match is None:
-                match = dict(box=it['box'], sig=it['sig'], t0=t, t1=t, samples=[], first=None)
+                match = dict(box=it['box'], sig=it['sig'], sig0=it['sig'], t0=t, t1=t, samples=[], first=None)
                 tracks.append(match)
             match['t1'] = t
             match['box'] = it['box']
+            match['sig'] = it['sig']     # follow the line as the wipe colours it in
             # how much of the line is coloured, measured left to right
             cs = it['colsat'].astype(np.float32)
             ct = it['coltxt'].astype(np.float32) + 1e-3
@@ -812,7 +846,7 @@ def extract_lyric_lines(path, dur, ytop, procs):
         start = next((t for t, f in mono if f > 0.03), None)
         end = next((t for t, f in mono if f > 0.95), None)
         lines.append(dict(t0=round(tr['t0'], 2), t1=round(tr['t1'] + 0.25, 2), s0=start, s1=end,
-                          wipe=mono[::2], box=tr['box']))
+                          wipe=mono[::2], box=tr['box'], sig=tr['sig0']))
     lines.sort(key=lambda l: (l['t0'], l['box'][0]))
     return lines
 
@@ -825,7 +859,19 @@ def ocr_lines(path, lines, url, model):
         say('lyrics', 1, 'Ollama is not running, so the lyric text was skipped. The video still shows the lyrics.')
         return
     from PIL import Image
-    for i, ln in enumerate(lines):
+    # a chorus shows the same line again: read each distinct line once (same width, same look before the wipe)
+    groups = []
+    for ln in lines:
+        w = ln['box'][3] - ln['box'][2]
+        for g in groups:
+            r = g[0]
+            if abs(r['box'][3] - r['box'][2] - w) < 16 and np.corrcoef(r['sig'], ln['sig'])[0, 1] > 0.95:
+                g.append(ln)
+                break
+        else:
+            groups.append([ln])
+    for i, g in enumerate(groups):
+        ln = g[0]
         t = (ln['t0'] + (ln['s0'] if ln['s0'] else ln['t0'])) / 2
         F = next((F for _, F in frames(path, 1, ss=max(0, t), t=0.6)), None)
         if F is None:
@@ -845,13 +891,53 @@ def ocr_lines(path, lines, url, model):
             res = json.loads(urllib.request.urlopen(req, timeout=120).read())
             text = (res.get('message') or {}).get('content', '').strip()
             text = re.sub(r'^["「『]|["」』]$', '', text.split('\n')[0]).strip()
-            ln['text'] = text[:120]
-        except Exception as e:
-            ln['text'] = ''
-        say('lyrics', 0.45 + 0.55 * (i + 1) / len(lines), 'Reading the lyrics with Ollama')
+        except Exception:
+            text = ''
+        for x in g:
+            x['text'] = text[:120]
+        say('lyrics', 0.45 + 0.55 * (i + 1) / len(groups), 'Reading the lyrics with Ollama')
 
 
 # ---------------------------------------------------------------- download and output
+def lyrics_text(dest, a):
+    """Read the lyric text for a song that is already imported, then free the graphics card for the next
+    import's vocal separator."""
+    f = os.path.join(dest, 'song.json')
+    try:
+        song = json.load(open(f, encoding='utf-8'))
+    except Exception:
+        say('error', None, 'That song has not been imported yet.')
+        sys.exit(1)
+    lines = [ln for ln in song.get('lyrics') or [] if 'box' in ln]
+    if not lines:
+        say('done', 1, 'The lyrics have been read already')
+        return
+    for ln in lines:
+        ln['sig'] = np.asarray(ln.get('sig') or np.zeros(64), np.float32)
+    say('lyrics', 0.4, 'Reading the lyrics with Ollama')
+    try:
+        ocr_lines(os.path.join(dest, song['video']), lines, a.ollama, a.model)
+    finally:
+        for ln in lines:
+            ln.pop('box', None)
+            ln.pop('sig', None)
+            ln.setdefault('text', '')
+        json.dump(song, open(f, 'w', encoding='utf-8'), ensure_ascii=False)
+        unload(a.ollama, a.model)
+    say('done', 1, 'Lyrics read')
+
+
+def unload(url, model):
+    """Ask Ollama to let go of the vision model now rather than in five minutes, so the next import's
+    vocal separator gets the graphics card."""
+    try:
+        body = json.dumps({'model': model, 'keep_alive': 0}).encode()
+        urllib.request.urlopen(urllib.request.Request(url.rstrip('/') + '/api/generate', data=body,
+                                                      headers={'Content-Type': 'application/json'}), timeout=10).read()
+    except Exception:
+        pass
+
+
 def media_dir(arg):
     d = arg or os.environ.get('ONGAKU_MEDIA') or os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'ongaku-renshuu-media')
     os.makedirs(os.path.join(d, 'karaoke'), exist_ok=True)
@@ -875,7 +961,7 @@ def update_ytdlp(media):
     subprocess.check_call([os.path.join(venv, 'bin', 'pip'), 'install', '-q', '-U', 'yt-dlp'], stdout=subprocess.DEVNULL)
 
 
-def download(url, dest_dir, media):
+def download(url, dest_dir, media, quiet=False):
     """Download as H.264 + AAC mp4 so every browser can play it. Returns (path, info)."""
     out = os.path.join(dest_dir, 'video.%(ext)s')
     # H.264 first (plays everywhere); YouTube sometimes refuses one format, so fall back to others
@@ -890,7 +976,7 @@ def download(url, dest_dir, media):
         for line in p.stdout:
             log.append(line)
             m = re.search(r'\[download\]\s+([\d.]+)%', line)
-            if m:
+            if m and not quiet:
                 say('download', float(m.group(1)) / 100, 'Downloading the video')
         p.wait()
         if p.returncode == 0:
@@ -923,6 +1009,53 @@ def download(url, dest_dir, media):
             raise RuntimeError('The download did not produce a video file.')
         path = os.path.join(dest_dir, cands[0])
     return path, info
+
+
+KARAOKE_TITLE = re.compile(r'カラオケ|karaoke|off\s*vocal|オフボーカル|instrumental|インスト|ニコカラ|노래방|伴奏', re.I)
+NOT_KARAOKE = re.compile(r'歌ってみた|cover|カバー|piano|ピアノ|guitar|ギター|弾いてみた|オルゴール|music box|8.?bit|reaction|'
+                         r'練習用|bgm|tutorial|lesson', re.I)
+
+
+def find_karaoke_video(ytdlp, info, exclude=()):
+    """The karaoke video of a song, given the original's details: a karaoke-titled upload close in length,
+    with as many of the title's words as possible."""
+    import vocalguide
+    q = vocalguide.search_query(info.get('title') or '', keep_quoted=True)
+    if not q:
+        return None
+    try:
+        out = subprocess.run(ytdlp + ['--no-warnings', '--flat-playlist', '-J', f'ytsearch15:{q} カラオケ'],
+                             capture_output=True, text=True, timeout=90).stdout
+        entries = (json.loads(out) or {}).get('entries') or []
+    except Exception:
+        return None
+    length = float(info.get('duration') or 0)
+    words = [w.lower() for w in q.split() if len(w) >= 2]
+    best = None
+    for e in entries:
+        t, d = e.get('title') or '', float(e.get('duration') or 0)
+        if not e.get('id') or e['id'] in exclude or not KARAOKE_TITLE.search(t) or NOT_KARAOKE.search(t):
+            continue
+        if length and d and abs(d - length) > max(30, 0.25 * length):
+            continue
+        hits = sum(w in t.lower() for w in words)
+        if hits < min(2, len(words)):
+            continue          # the artist's name alone would find their other songs
+        cost = (abs(d - length) / max(30.0, length) * 5 if length and d else 2) - hits
+        if best is None or cost < best[0]:
+            best = (cost, {'id': e['id'], 'title': t, 'duration': d, 'url': f"https://www.youtube.com/watch?v={e['id']}"})
+    return best and best[1]
+
+
+def video_meta(url, media):
+    """Title, channel and length of a video, without downloading it."""
+    try:
+        out = subprocess.run(ytdlp_cmd(media) + ['--no-playlist', '--no-warnings', '-J', '--skip-download', '--', url],
+                             capture_output=True, text=True, timeout=120).stdout
+        e = json.loads(out)
+        return {k: e.get(k) for k in ('title', 'uploader', 'webpage_url', 'duration') if e.get(k)}
+    except Exception:
+        return {}
 
 
 def work_dir(dest):
@@ -965,6 +1098,8 @@ def main():
     ap.add_argument('--original', help='link to the original recording, instead of searching for it')
     ap.add_argument('--ollama', default=os.environ.get('OLLAMA_HOST', 'http://127.0.0.1:11434'))
     ap.add_argument('--model', default='qwen2.5vl:7b')
+    ap.add_argument('--lyrics-text', action='store_true',
+                    help='read the lyric text of an imported song with Ollama (the server runs this after the import)')
     ap.add_argument('--procs', type=int, default=max(2, min(12, (os.cpu_count() or 4) // 2)))
     a = ap.parse_args()
     if not a.ollama.startswith('http'):
@@ -974,6 +1109,9 @@ def main():
     dest = os.path.join(media, 'karaoke', sid)
     os.makedirs(dest, exist_ok=True)
     T0 = time.time()
+    fguide = url = None
+    if a.lyrics_text:
+        return lyrics_text(dest, a)
     try:
         if re.match(r'https?://', a.source):
             if os.path.exists(os.path.join(dest, 'video.mp4')):
@@ -985,6 +1123,32 @@ def main():
                         break
                     except Exception:
                         pass
+            elif a.method in ('auto', 'vocals'):
+                # the guide only needs the sound: build it from the karaoke audio while the video downloads
+                import vocalguide
+                say('download', 0, 'Looking at the link')
+                info, url = video_meta(a.source, media), a.source
+                if info.get('title') and not KARAOKE_TITLE.search(info['title']) and not a.original:
+                    # a link to the original song: find its karaoke video, and use the link for the pitch guide
+                    say('download', 0, 'That is the original song, so looking for its karaoke video')
+                    k = find_karaoke_video(ytdlp_cmd(media), info, exclude={sid})
+                    if not k:
+                        raise RuntimeError('That link is not a karaoke video, and no karaoke video of the song was found on '
+                                           'YouTube. Paste a karaoke video link as well.')
+                    a.original, url = a.source, k['url']
+                    info = video_meta(url, media) or {'title': k['title'], 'duration': k['duration']}
+                say('download', 0, 'Downloading the video and the karaoke sound')
+                pool = ThreadPoolExecutor(2)
+                fvideo = pool.submit(download, url, dest, media, True)
+                fkara = pool.submit(vocalguide.download_audio, ytdlp_cmd(media), url, os.path.join(work_dir(dest), 'karaoke.m4a'))
+                if not info.get('duration'):
+                    info['duration'] = duration(fkara.result())
+                # the search for the original starts now; the karaoke sound is only needed for comparing
+                fguide = ThreadPoolExecutor(1).submit(vocalguide.build, lambda: fkara.result(), info.get('title') or sid,
+                                                      float(info['duration']), media, work_dir(dest), ytdlp_cmd(media),
+                                                      a.original, a.procs, lambda: fvideo.result()[0])
+                path, vinfo = fvideo.result()
+                info = vinfo or info
             else:
                 say('download', 0, 'Downloading the video')
                 path, info = download(a.source, dest, media)
@@ -995,15 +1159,21 @@ def main():
             info = {'title': os.path.splitext(os.path.basename(a.source))[0]}
         dur = duration(path)
         song = {'version': 1, 'id': sid, 'title': info.get('title') or sid, 'artist': info.get('uploader') or '',
-                'source': a.source if re.match(r'https?://', a.source) else '', 'duration': round(dur, 2),
+                'source': (url or a.source) if re.match(r'https?://', a.source) else '', 'duration': round(dur, 2),
                 'video': os.path.basename(path), 'created': int(time.time()), 'notes': [], 'lyrics': [],
                 'source_info': {k: info.get(k) for k in ('title', 'uploader', 'webpage_url') if info.get(k)}}
         vocal_err = None
         y1 = None
+        early = None
+        if fguide and not a.no_lyrics:
+            # found in a process of its own while the guide is still being built (a thread here would share
+            # Python's lock with the pitch tracking); the guide is saved as soon as it is ready
+            early = LinesProcess(path, dur, 30, a.procs)
         if a.method in ('auto', 'vocals'):
             import vocalguide
             try:
-                vnotes, cont, vinfo = vocalguide.build(path, song['title'], dur, media, work_dir(dest), ytdlp_cmd(media), a.original, a.procs)
+                vnotes, cont, vinfo = fguide.result() if fguide else \
+                    vocalguide.build(path, song['title'], dur, media, work_dir(dest), ytdlp_cmd(media), a.original, a.procs)
                 song['notes'] = vnotes
                 song['contour'] = cont
                 song['analysis'] = vinfo
@@ -1048,17 +1218,20 @@ def main():
         update_index(media)
         say('notes', 1, f'Pitch guide ready: {len(song["notes"])} notes' + (' from the original vocal' if song.get('guide') == 'vocals' else ''))
         if not a.no_lyrics:
-            lines = extract_lyric_lines(path, dur, min(H - 120, y1 + 24) if y1 else 30, a.procs)
+            if early is not None and not y1:
+                say('lyrics', 0.5, 'Timing the lyric lines')
+                lines = early.result()
+            else:
+                lines = extract_lyric_lines(path, dur, min(H - 120, y1 + 24) if y1 else 30, a.procs)
             for ln in lines:
                 ln['text'] = ''
-            song['lyrics'] = lines
-            song['lyrics_count'] = len(lines)
-            json.dump(song, open(os.path.join(dest, 'song.json'), 'w', encoding='utf-8'), ensure_ascii=False)
-            if lines:
-                ocr_lines(path, lines, a.ollama, a.model)
+            # timed now; the text is read afterwards by a separate --lyrics-text run, so the song is ready
+            # without waiting for it (the video shows the lyrics anyway)
             for ln in lines:
                 ln['y'] = ln['box'][0]
-                ln.pop('box', None)
+                ln['sig'] = [round(float(v), 3) for v in ln['sig']]
+            song['lyrics'] = lines
+            song['lyrics_count'] = len(lines)
             json.dump(song, open(os.path.join(dest, 'song.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         update_index(media)
         say('done', 1, f'Ready in {time.time() - T0:.0f} s')

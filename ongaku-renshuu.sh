@@ -56,14 +56,20 @@ case "${1:-}" in
   --karaoke|--piano)
     [[ -n ${2:-} ]] || { echo "Usage: ongaku $1 URL_OR_FILE" >&2; exit 1; }
     tool=karaoke.py; [[ $1 == --piano ]] && tool=pianovideo.py
-    python3 "$DIR/tools/$tool" "$2" --media "$MEDIA" "${@:3}" | python3 -c '
+    show() { python3 -c '
 import json, sys
 for line in sys.stdin:
     try: m = json.loads(line)
     except ValueError: continue
-    p = m.get("progress"); pct = "" if p is None else f" {int(p*100)}%"
-    print(f"[{m.get(\"stage\")}{pct}] {m.get(\"message\")}", flush=True)'
-    exit "${PIPESTATUS[0]}" ;;
+    p = m.get("progress"); pct = "" if p is None else " %d%%" % int(p * 100)
+    print("[%s%s] %s" % (m.get("stage"), pct, m.get("message")), flush=True)'; }
+    python3 "$DIR/tools/$tool" "$2" --media "$MEDIA" "${@:3}" | show
+    rc=${PIPESTATUS[0]}
+    # the song is ready now; the lyric text is read afterwards
+    if [[ $rc -eq 0 && $tool == karaoke.py && " ${*:3} " != *" --no-lyrics "* ]]; then
+      python3 "$DIR/tools/karaoke.py" "$2" --media "$MEDIA" --lyrics-text | show || true
+    fi
+    exit "$rc" ;;
   --setup-vocals)
     mkdir -p "$MEDIA"
     echo "Installing the vocal separator (PyTorch and Demucs, a few GB) into $MEDIA/vocal-venv..."
@@ -78,9 +84,10 @@ for line in sys.stdin:
     echo "Usage: ongaku [--serve | --stop | --status]"
     echo "  --serve          start the server without opening the browser"
     echo "  --get-soundfont  download the GeneralUser GS instrument sounds (about 32 MB)"
-    echo "  --karaoke URL    import a karaoke video (also works from the app). The pitch guide comes from"
-    echo "                   the original song's vocals, or from the video's own pitch bars if that fails."
-    echo "                   Add --original LINK to name the original song, or --method bars to skip it."
+    echo "  --karaoke URL    import a karaoke video, or the original song and its karaoke video is found"
+    echo "                   (also works from the app). The pitch guide comes from the original song's vocals,"
+    echo "                   or from the video's own pitch bars if that fails. Add --original LINK to name the"
+    echo "                   original song, or --method bars to skip it. The lyric text is read afterwards."
     echo "  --setup-vocals   install the vocal separator now instead of on the first karaoke import"
     echo "  --piano URL      import a falling-notes piano video as a piano song"
     echo "  --update-ytdlp   install the newest yt-dlp for video downloads"

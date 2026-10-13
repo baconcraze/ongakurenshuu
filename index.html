@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.10.2">
+<meta name="ongaku-renshuu-version" content="1.12.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -55,6 +55,8 @@ button{cursor:pointer}
 .brand{white-space:nowrap;line-height:1.05}
 .brand-ja{display:block;font-family:"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",var(--ui);font-weight:600;font-size:24px;letter-spacing:.08em;color:var(--brass-light)}
 .brand-en{display:block;margin-top:2px;font-family:var(--num);font-weight:500;font-size:12px;letter-spacing:.14em;color:var(--wood-dim)}
+.brand-ver{margin-left:.5em;letter-spacing:.04em;opacity:.8}
+.brand-ver.stale{color:var(--brass-light);opacity:1;cursor:pointer}
 .meta{min-width:0;flex:1}
 .title{font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .artist{font-size:13px;color:var(--wood-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -119,6 +121,7 @@ svg.row{display:block;margin:0 0 14px;user-select:none;-webkit-user-select:none;
   .speed input{width:110px}
   .top{padding:8px 12px;gap:10px}
   .brand-ja{font-size:20px}
+  .brand-ver{display:block;margin:2px 0 0}
   .hint{display:none}
 }
 
@@ -287,7 +290,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
 </head>
 <body>
 <header class="top">
-  <div class="brand" title="Ongaku Renshuu, music practice"><span class="brand-ja" lang="ja">音楽練習</span><span class="brand-en">Ongaku Renshuu</span></div>
+  <div class="brand" title="Ongaku Renshuu, music practice"><span class="brand-ja" lang="ja">音楽練習</span><span class="brand-en">Ongaku Renshuu<span id="appVer" class="brand-ver"></span></span></div>
   <div class="meta"><div id="songTitle" class="title"></div><div class="subline"><span id="songArtist" class="artist"></span><select id="trackSel" class="tracksel" aria-label="Track" hidden></select></div></div>
   <div class="top-actions">
     <button class="tbtn" id="btnKara">Karaoke</button>
@@ -364,7 +367,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
       <video id="kVideo" playsinline preload="auto"></video>
       <canvas id="kLane" aria-label="Pitch guide"></canvas>
       <div id="kLyrics" class="klyrics" aria-live="off"></div>
-      <div id="kEmpty" class="kempty">Pick a song from the list (the demos are a good start), or paste a karaoke video link to import it. Ongaku Renshuu finds the original song, follows its singer's pitch, and turns it into a pitch guide.</div>
+      <div id="kEmpty" class="kempty">Pick a song from the list (the demos are a good start), or paste a karaoke video or original song link to import it. Ongaku Renshuu finds the other one, follows its singer's pitch, and turns it into a pitch guide.</div>
       <div id="kResult" class="kresult" hidden>
         <div class="kcard" role="dialog" aria-label="Your score">
           <div class="kgrade" id="kGrade"></div>
@@ -382,9 +385,9 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     </div>
     <aside class="kside" id="kSide">
       <div class="kimp">
-        <label class="f">Import a karaoke video<input id="kUrl" type="url" placeholder="YouTube link" autocomplete="off"></label>
+        <label class="f">Karaoke video link<input id="kUrl" type="url" placeholder="YouTube link (or give only the original)" autocomplete="off"></label>
         <label class="f">Pitch guide from<select id="kMethod"><option value="auto">The original song's vocals (best)</option><option value="bars">The video's own pitch bars</option></select></label>
-        <label class="f" id="kOrigWrap">Original song link (optional)<input id="kOrig" type="url" placeholder="Found on YouTube if left empty" autocomplete="off"></label>
+        <label class="f" id="kOrigWrap">Original song link<input id="kOrig" type="url" placeholder="Optional, found on YouTube" autocomplete="off"></label>
         <p id="kMethodHelp" class="help"></p>
         <div class="row-btns"><button class="btn primary" id="kImportQ">Import and queue</button><button class="btn" id="kImport">Import</button></div>
         <p id="kSrvMsg" class="help"></p>
@@ -401,6 +404,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <span id="kTime" class="ktime">0:00 / 0:00</span>
     <input type="range" id="kSeek" min="0" max="1000" value="0" aria-label="Position">
     <button class="tog" id="kMic" aria-pressed="false" title="Sing into your microphone to be scored">Microphone</button>
+    <span class="kgrp"><label class="kdim" for="kLevel">Level</label><select id="kLevel" title="How close to the note your singing has to be"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="pro">Pro</option></select></span>
     <span class="kgrp"><span class="kdim">Key</span><button class="ibtn sm" id="kKeyDn" aria-label="Guide key down">&minus;</button><output id="kKey">0</output><button class="ibtn sm" id="kKeyUp" aria-label="Guide key up">+</button></span>
     <span class="kgrp" id="kPracticeCtl"><label class="kdim" for="kSpeed">Speed</label><select id="kSpeed"><option value="1">100%</option><option value="0.9">90%</option><option value="0.8">80%</option><option value="0.7">70%</option><option value="0.6">60%</option></select>
       <button class="tog" id="kLoopA" title="Start of a section to repeat">A</button><button class="tog" id="kLoopB" title="End of the section to repeat">B</button><button class="tog" id="kLoop" aria-pressed="false" title="Repeat the song, or the A to B section">Repeat</button></span>
@@ -3737,8 +3741,10 @@ function onKaraJobs(jobs){
   if(kara.mode === 'queue' && !kara.song && kara.queue.length && queueStatus(kara.queue[0]).ready) playQueueHead();
 }
 async function karaImport(queueIt){
-  const url = $('#kUrl').value, orig = $('#kOrig').value.trim();
+  let url = $('#kUrl').value.trim(), orig = $('#kOrig').value.trim();
   if(orig && !/^https?:\/\//.test(orig)){ $('#kSrvMsg').textContent = 'The original song link should start with https://'; return; }
+  // only the original given: import that link, and the karaoke video is found for it
+  if(!url && orig && $('#kMethod').value === 'auto'){ url = orig; orig = ''; }
   try{
     const j = await startImport('karaoke', url, {method:$('#kMethod').value, original:$('#kMethod').value === 'auto' ? orig : ''});
     $('#kOrig').value = '';
@@ -3751,11 +3757,12 @@ async function karaImport(queueIt){
 $('#kImportQ').addEventListener('click', () => karaImport(true));
 $('#kImport').addEventListener('click', () => karaImport(false));
 $('#kUrl').addEventListener('keydown', e => { if(e.key === 'Enter') karaImport(kara.mode === 'queue'); });
+$('#kOrig').addEventListener('keydown', e => { if(e.key === 'Enter') karaImport(kara.mode === 'queue'); });
 function updateMethodUI(){
   const m = $('#kMethod').value;
   $('#kOrigWrap').hidden = m !== 'auto';
   $('#kMethodHelp').textContent = m === 'auto'
-    ? `Finds the original recording, separates its vocal, and follows the singer's pitch. If that fails, it reads the video's own pitch bars instead.${kara.separator === false ? ' The first time, it installs the vocal separator (a few GB), which takes a while.' : ''}`
+    ? `Give the karaoke video, the original song, or both: whichever is missing is found on YouTube. The singer's voice is separated from the original and its pitch becomes the guide. If that fails, it reads the video's own pitch bars instead.${kara.separator === false ? ' The first time, it installs the vocal separator (a few GB), which takes a while.' : ''}`
     : 'Reads the pitch bars drawn on the video (音程バー). Use this for videos that show a pitch guide.';
 }
 settings.karaMethod = settings.karaMethod === 'bars' ? 'bars' : 'auto';
@@ -3790,6 +3797,20 @@ function playQueueHead(){
   karaLoad(item.id, true);
 }
 const kTarget = t => { for(const n of kara.notes){ if(n.t > t) break; if(t < n.e) return n; } return null; };
+// Difficulty, like a karaoke machine's scoring levels. on: how close counts as on pitch, in semitones (0.5 is
+// 50 cents); close: half credit; skip: the start of each note left unjudged, so sliding into a note is free;
+// octave: whether the guide's octave matters (otherwise any octave counts, for every voice range);
+// full: the share of a note that has to be on pitch for full marks.
+const LEVELS = {
+  easy:{on:1, close:2, skip:0.15, octave:false, full:0.55, help:'Easy: within a semitone counts, in any octave, and sliding into a note is free.'},
+  normal:{on:0.5, close:1, skip:0.1, octave:false, full:0.7, help:'Normal: within 50 cents (a quarter tone) counts, in any octave.'},
+  hard:{on:0.35, close:0.7, skip:0.06, octave:false, full:0.8, help:'Hard: within 35 cents counts, in any octave.'},
+  pro:{on:0.25, close:0.5, skip:0.03, octave:true, full:0.85, help:'Pro: within 25 cents, in the guide\'s own octave (move it with Key).'},
+};
+const kLevel = () => LEVELS[settings.karaLevel] || LEVELS.normal;
+settings.karaLevel = LEVELS[settings.karaLevel] ? settings.karaLevel : 'normal';
+$('#kLevel').value = settings.karaLevel; $('#kLevel').title = kLevel().help;
+$('#kLevel').addEventListener('change', e => { settings.karaLevel = e.target.value; e.target.title = kLevel().help; saveSettings(); });
 
 // ---- playback controls
 const kPlayIcon = () => { const b = $('#kPlay'); b.innerHTML = kv.paused ? ICON_PLAY : ICON_PAUSE; b.setAttribute('aria-label', kv.paused ? 'Play' : 'Pause'); };
@@ -3836,7 +3857,7 @@ function scoreNow(){
   const sung = kara.notes.filter(n => n.act > 0);
   let tot = 0, got = 0, hitN = 0, streak = 0, best = 0, act = 0, on = 0, voiced = 0;
   for(const n of sung){
-    const d = n.e - n.t, credit = Math.min(1, (n.hit + 0.5 * n.close) / n.act / 0.7);
+    const d = n.e - n.t, credit = Math.min(1, (n.hit + 0.5 * n.close) / n.act / kLevel().full);
     tot += d; got += credit * d; act += n.act; on += n.hit; voiced += n.voiced || 0;
     if(credit >= 0.5){ hitN++; streak++; best = Math.max(best, streak); } else streak = 0;
   }
@@ -3852,10 +3873,13 @@ function showResult(final){
     const g = GRADES.find(x => r.score >= x[0]);
     $('#kGrade').textContent = g[1]; $('#kScore').textContent = r.score.toFixed(1); $('#kWord').textContent = g[2];
     $('#kStats').innerHTML = `<dt>On pitch</dt><dd>${r.acc.toFixed(0)}%</dd><dt>Notes hit</dt><dd>${r.hitN} of ${r.total}</dd><dt>Best streak</dt><dd>${r.best} notes</dd><dt>Singing heard</dt><dd>${r.voiced.toFixed(0)}% of the time</dd>`;
-    const all = kScores(), prev = all[kara.id] || {};
+    // best scores are kept per level; Normal keeps the plain song id, as before levels existed
+    const lvl = settings.karaLevel || 'normal', key = lvl === 'normal' ? kara.id : `${kara.id}@${lvl}`;
+    const all = kScores(), prev = all[key] || {};
     const isBest = prev.best == null || r.score > prev.best;
-    all[kara.id] = {best:isBest ? +r.score.toFixed(2) : prev.best, last:+r.score.toFixed(2), when:Date.now()};
+    all[key] = {best:isBest ? +r.score.toFixed(2) : prev.best, last:+r.score.toFixed(2), when:Date.now()};
     store.set('ongaku.karaokeScores', all);
+    $('#kWord').textContent += ` · ${$('#kLevel').selectedOptions[0].textContent}`;
     if(isBest && prev.best != null) $('#kWord').textContent += ' · new personal best';
   } else {
     $('#kGrade').textContent = ''; $('#kScore').textContent = 'No score';
@@ -3958,11 +3982,12 @@ function karaFrame(){
   const tt = t - lat;   // what the singer was meant to be singing when this sound was made
   const target = kara.song ? kTarget(tt) : null;
   let dev = null;
-  if(sungMidi != null && target){ dev = ((sungMidi - (target.m + key)) % 12 + 18) % 12 - 6; }
+  const lv = kLevel();
+  if(sungMidi != null && target){ dev = lv.octave ? sungMidi - (target.m + key) : ((sungMidi - (target.m + key)) % 12 + 18) % 12 - 6; }
   const live = kara.song && !kv.paused && !kv.seeking;
-  if(live && target && m){
+  if(live && target && m && tt - target.t >= lv.skip){
     target.act++;
-    if(sungMidi != null){ target.voiced = (target.voiced || 0) + 1; if(Math.abs(dev) <= 0.6) target.hit++; else if(Math.abs(dev) <= 1.3) target.close++; }
+    if(sungMidi != null){ target.voiced = (target.voiced || 0) + 1; if(Math.abs(dev) <= lv.on) target.hit++; else if(Math.abs(dev) <= lv.close) target.close++; }
   }
   // each note gets a rating as soon as it is over
   if(live && m && kara.lastTarget && kara.lastTarget !== target) rateNote(kara.lastTarget);
@@ -3977,7 +4002,7 @@ const RATINGS = [[0.9, 'Perfect', '#8ef08e'], [0.7, 'Great', '#c6f07a'], [0.45, 
 function rateNote(n){
   if(n.rated || n.act < 4) return;
   n.rated = true;
-  const credit = Math.min(1, (n.hit + 0.5 * n.close) / n.act / 0.7);
+  const credit = Math.min(1, (n.hit + 0.5 * n.close) / n.act / kLevel().full);
   const r = RATINGS.find(x => credit >= x[0]);
   kara.combo = credit >= 0.45 ? kara.combo + 1 : 0;
   kara.pops.push({n, text:r[1], color:r[2], at:performance.now()});
@@ -3985,7 +4010,7 @@ function rateNote(n){
 }
 // colours for the singer's line: on pitch, too high, too low, and between notes
 const TRACE = {on:'#7dfa8c', high:'#ff6a55', low:'#55b6ff', none:'rgba(255,255,255,0.55)'};
-const traceKind = dev => dev == null ? 'none' : Math.abs(dev) <= 0.6 ? 'on' : dev > 0 ? 'high' : 'low';
+const traceKind = dev => dev == null ? 'none' : Math.abs(dev) <= kLevel().on ? 'on' : dev > 0 ? 'high' : 'low';
 function drawLane(t, tt, key, target, sungMidi, dev){
   const dpr = window.devicePixelRatio || 1, W2 = kstage.clientWidth, H2 = kstage.clientHeight;
   if(kcv.width !== Math.round(W2 * dpr) || kcv.height !== Math.round(H2 * dpr)){ kcv.width = Math.round(W2 * dpr); kcv.height = Math.round(H2 * dpr); }
@@ -4072,7 +4097,7 @@ function drawLane(t, tt, key, target, sungMidi, dev){
   // live readout: where you are against the note, the score so far, and the combo
   c.textAlign = 'left'; c.font = `600 ${Math.max(12, Math.min(16, L.h / 12))}px Barlow, sans-serif`;
   const by = d => d < 1 ? `${Math.round(d * 100)} cents` : `${Math.round(d)} semitone${Math.round(d) === 1 ? '' : 's'}`;
-  const cue = sungMidi == null ? (target ? 'Sing!' : '') : !target ? '' : Math.abs(dev) <= 0.6 ? 'On pitch' : dev > 0 ? `Too high, go down ${by(dev)}` : `Too low, go up ${by(-dev)}`;
+  const cue = sungMidi == null ? (target ? 'Sing!' : '') : !target ? '' : Math.abs(dev) <= kLevel().on ? 'On pitch' : dev > 0 ? `Too high, go down ${by(dev)}` : `Too low, go up ${by(-dev)}`;
   if(cue){
     const tw = c.measureText(cue).width, fs = Math.max(12, Math.min(16, L.h / 12));
     c.fillStyle = 'rgba(12,9,8,0.8)'; c.fillRect(L.x + 4, L.y + 20 - fs, tw + 12, fs + 8);
@@ -4120,6 +4145,18 @@ document.addEventListener('keydown', e => {
 window.addEventListener('resize', () => { if(kara.open) fitView(true); });
 
 /* ---------- Start ---------- */
+// Version in the header. The server reports the installed version; if this page is older, it was cached.
+const APP_VERSION = (document.querySelector('meta[name="ongaku-renshuu-version"]') || {}).content || '';
+$('#appVer').textContent = APP_VERSION ? 'v' + APP_VERSION : '';
+$('#appVer').title = `Version ${APP_VERSION}`;
+api('api/info').then(i => {
+  if(!i.version || i.version === APP_VERSION) return;
+  const el = $('#appVer');
+  el.textContent = `v${APP_VERSION} · reload`;
+  el.title = `Version ${i.version} is installed, but this page is still ${APP_VERSION}. Click to reload.`;
+  el.classList.add('stale');
+  el.addEventListener('click', () => location.reload());
+}).catch(() => {});
 updatePlayBtn();
 const startId = store.get('ongaku.current', null);
 loadSong(allSongs().find(s => s.id === startId) || DEMOS[0]);

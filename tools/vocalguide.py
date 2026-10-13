@@ -13,6 +13,7 @@ Used by karaoke.py, which falls back to reading the video's own pitch bars when 
 Run on its own for testing: vocalguide.py KARAOKE_MEDIA_FILE --title TITLE [--original URL]
 """
 import json, os, re, shutil, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -21,10 +22,19 @@ SR = 16000            # pitch tracking rate
 HOP = 160             # 10 ms frames
 CSR = 11025           # matching rate
 CHOP = 1102           # about 0.1 s matching frames
+LATE = 0.01           # notes come out about 10 ms early against the singer (measured on acapellas)
+BASS_GAP = 10         # semitones under the sung line that count as bass leaking into the vocal
+
+
+_SAY = __import__('threading').Lock()
 
 
 def say(stage, progress=None, message=''):
-    print(json.dumps({'stage': stage, 'progress': progress, 'message': message}, ensure_ascii=False), flush=True)
+    # one write per line, so progress from parallel steps never runs together
+    line = json.dumps({'stage': stage, 'progress': progress, 'message': message}, ensure_ascii=False) + '\n'
+    with _SAY:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def load_audio(path, sr):
@@ -34,13 +44,18 @@ def load_audio(path, sr):
 
 # ---------------------------------------------------------------- finding the original
 JUNK = r'(カラオケ|karaoke|ガイドなし|ガイド無し|ガイドあり|ガイドメロディ|guide|off\s*vocal|オフボーカル|instrumental|inst\.?|' \
-       r'歌詞付き?|lyrics?|full|フル|ver\.?|version|hd|4k|mv|pv|official|公式|音程バー|歌ってみた|cover|カバー|on\s*vocal|' \
-       r'原曲キー|キー変更|[+-]\d+key|key\s*[+-]?\d+|高音質|字幕)'
+       r'歌詞付き?|lyrics?|full|フル|ver\.?|version|hd|4k|music\s*video|mv|pv|official|公式|音程バー|歌ってみた|cover|カバー|on\s*vocal|' \
+       r'原曲キー|キー変更|[+-]\d+key|key\s*[+-]?\d+|高音質|字幕|練習用|インスト|bgm|♬|♪)'
 
 
-def search_query(title):
+def search_query(title, keep_quoted=False):
     """Strip karaoke words and bracketed tags from a karaoke video's title."""
-    t = re.sub(r'[【\[［(（「『<〈《].*?[】\]］)）」』>〉》]', ' ', title or '')
+    if keep_quoted:
+        # in an original's own title, 「」 and 『』 usually hold the song's name, so keep what is inside
+        t = re.sub(r'[【\[［(（<〈《].*?[】\]］)）>〉》]', ' ', title or '')
+        t = re.sub(r'[「『」』]', ' ', t)
+    else:
+        t = re.sub(r'[【\[［(（「『<〈《].*?[】\]］)）」』>〉》]', ' ', title or '')
     t = re.sub(JUNK, ' ', t, flags=re.I)
     t = re.sub(r'[/／|｜:：~〜\-–—_・,、]+', ' ', t)
     t = re.sub(r'\s+', ' ', t).strip()
@@ -51,22 +66,30 @@ BAD = re.compile(r'カラオケ|karaoke|instrumental|off\s*vocal|オフボーカ
                  r'orchestra|オーケストラ|remix|リミックス|弾いてみた|叩いてみた|吹いてみた|演奏|music\s*box|オルゴール|8.?bit|'
                  r'nightcore|slowed|sped|trumpet|トランペット|sax|サックス|flute|フルート|violin|バイオリン|ヴァイオリン|'
                  r'cello|チェロ|ocarina|オカリナ|harmonica|ハーモニカ|erhu|二胡|ukulele|ウクレレ|tutorial|lesson|レッスン|'
-                 r'midi|synthesia|reaction|リアクション|踊ってみた|dance', re.I)
-LIVE = re.compile(r'live|ライブ|concert|コンサート|tour|ツアー', re.I)
-GOOD = re.compile(r'official|公式|- topic|provided to youtube|audio|オフィシャル', re.I)
+                 r'midi|synthesia|reaction|リアクション|踊ってみた|dance|\bamv\b|\bmad\b|総集編|解説|切り抜き|'
+                 r'acapella|a cappella|アカペラ|vocals? only|比較|聴き比べ', re.I)
+# a different performance of the song, or an edit with extra sound (dialogue, effects) over it
+LIVE = re.compile(r'live|ライブ|concert|コンサート|tour|ツアー|生歌|弾き語り|acoustic|アコースティック|first take|'
+                  r'award|アワード|紅白|music station|performance|on stage|ステージ|\bfes\b|フェス|collab|コラボ|[@＠]|体育館|武道館|'
+                  r'ドーム|アリーナ|ホール|\bver\b|ver\.|バージョン|audition|オーディション', re.I)
+GOOD = re.compile(r'official|公式|- topic|provided to youtube|audio|オフィシャル|music video|\bmv\b|\bpv\b', re.I)
 
 
 def find_candidates(ytdlp, title, duration, want=4, exclude=()):
     """Search YouTube for the original recording; rank by how close the length is and how official it looks."""
     q = search_query(title)
     seen, cands = set(), []
-    for query in (q, q + ' official audio'):
+
+    def search(query):
         try:
             out = subprocess.run(ytdlp + ['--no-warnings', '--flat-playlist', '-J', f'ytsearch10:{query}'],
                                  capture_output=True, text=True, timeout=90).stdout
-            entries = (json.loads(out) or {}).get('entries') or []
+            return (json.loads(out) or {}).get('entries') or []
         except Exception:
-            entries = []
+            return []
+    with ThreadPoolExecutor(2) as ex:        # both searches at once
+        results = list(ex.map(search, (q, q + ' official audio')))
+    for entries in results:
         for e in entries:
             vid, d = e.get('id'), e.get('duration')
             if not vid or vid in seen or not d or vid in exclude:
@@ -75,13 +98,20 @@ def find_candidates(ytdlp, title, duration, want=4, exclude=()):
             name = f"{e.get('title') or ''} {e.get('channel') or e.get('uploader') or ''}"
             if BAD.search(name):
                 continue
-            cost = abs(d - duration) / max(30.0, duration) * 10
-            if abs(d - duration) > max(25, 0.15 * duration):
+            # a music video often runs longer than the song (a story intro or outro); lining up copes with
+            # that, but a shorter upload is usually a cut-down (TV size) version
+            over = d - duration
+            cost = abs(over) / max(30.0, duration) * (5 if over > 0 else 10)
+            if over > max(60, 0.35 * duration) or -over > max(25, 0.15 * duration):
                 cost += 6
             if LIVE.search(name):
                 cost += 2.5
             if GOOD.search(name):
                 cost -= 1
+            if e.get('channel_is_verified'):
+                # a verified channel named after the artist is the artist's own; fan channels use the name too
+                channel = (e.get('channel') or '').lower()
+                cost -= 1 if any(len(w) >= 2 and w.lower() in channel for w in q.split()) else 0.5
             cands.append((cost, {'id': vid, 'title': e.get('title') or vid, 'channel': e.get('channel') or e.get('uploader') or '',
                                  'duration': d, 'url': f'https://www.youtube.com/watch?v={vid}'}))
     cands.sort(key=lambda c: c[0])
@@ -320,6 +350,7 @@ def align(kara, orig):
 # ---------------------------------------------------------------- the karaoke video's lyric wipe
 WFPS = 12.5           # wipe analysis frame rate
 WW, WH = 480, 270     # wipe analysis size
+WBANDS = 18           # horizontal bands, so busy parts of the picture can be left out
 
 
 def _wipe_chunk(args):
@@ -344,7 +375,7 @@ def _wipe_chunk(args):
             m = (np.abs(x1 - x0).sum(2) > 120) & (np.abs(z - x1).sum(2) < 60) & (np.abs(x0 - a).sum(2) < 60) & (s0 | s1)
             c = k - 5          # the change happened between frames k-6 and k-4
             if k0 <= c < k1:
-                out[c] = int(m.sum())
+                out[c] = m.reshape(WBANDS, -1).sum(1).astype(np.int32)
         k += 1
     p.wait()
     return out
@@ -355,13 +386,17 @@ def wipe_activity(path, duration, procs):
     total = int(duration * WFPS) + 1
     n = max(1, procs * 2)
     edges = np.linspace(0, total, n + 1).astype(int)
-    act = np.zeros(total, np.float32)
+    bands = np.zeros((total, WBANDS), np.float32)
     with Pool(procs) as pool:
         for k, part in enumerate(pool.imap_unordered(_wipe_chunk, [(path, int(a), int(b)) for a, b in zip(edges, edges[1:])])):
             for i, val in part.items():
-                act[i] = val
+                bands[i] = val
             say('align', 0.78 + 0.1 * (k + 1) / n, 'Reading the lyric wipe to fine-tune the timing')
-    return act
+    # Lyrics are quiet most of the time and change in bursts as a line is wiped. Bands that change all
+    # the time (moving backgrounds, spectrum displays, scrolling pitch bars) are left out.
+    busy = (bands > 8).mean(0)
+    keep = (busy < 0.45) & (bands.sum(0) > 0)
+    return bands[:, keep].sum(1) if keep.any() else bands.sum(1)
 
 
 def wipe_onsets(act, quiet=5):
@@ -436,11 +471,15 @@ def separate(media, src, out_wav):
     p = subprocess.Popen([py, os.path.join(HERE, 'separate.py'), src, out_wav], stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True)
     tail = []
+    msg = 'Separating the vocal from the original song'
     for line in p.stdout:
         tail = (tail + [line.strip()])[-5:]
         m = re.match(r'progress ([\d.]+)', line)
         if m:
-            say('vocals', 0.35 + 0.35 * float(m.group(1)), 'Separating the vocal from the original song')
+            say('vocals', 0.35 + 0.35 * float(m.group(1)), msg)
+        elif line.startswith('cpu '):
+            msg = 'Separating the vocal on the CPU (the graphics card is busy), this takes longer'
+            say('vocals', None, msg)
     p.wait()
     if p.returncode != 0 or not os.path.exists(out_wav):
         raise RuntimeError('the vocal could not be separated: ' + ' '.join(tail[-2:]))
@@ -448,8 +487,10 @@ def separate(media, src, out_wav):
 
 
 # ---------------------------------------------------------------- following the sung pitch
-def yin_track(x, sr=SR, hop=HOP, win=640, fmin=60.0, fmax=1000.0, thr=0.18):
-    """YIN pitch per 10 ms frame. Returns midi (nan when unvoiced), aperiodicity, and rms."""
+def yin_track(x, sr=SR, hop=HOP, win=640, fmin=60.0, fmax=1000.0, thr=0.18, floor_midi=None):
+    """YIN pitch per 10 ms frame. Returns midi (nan when unvoiced), aperiodicity, and rms.
+    floor_midi (per frame, nan for none) keeps each frame's pitch above that note, so a louder bass
+    line leaking under the voice is not picked instead of it."""
     tmax = int(sr / fmin)
     tmin = int(sr / fmax)
     n = win + tmax
@@ -472,6 +513,10 @@ def yin_track(x, sr=SR, hop=HOP, win=640, fmin=60.0, fmax=1000.0, thr=0.18):
         d[:, 0] = 1
         cm = d[:, 1:] * np.arange(1, tmax + 1) / (np.cumsum(d[:, 1:], 1) + 1e-12)
         cm = np.concatenate([np.ones((len(idx), 1)), cm], 1)
+        if floor_midi is not None:
+            fl = floor_midi[idx]
+            lim = np.where(np.isfinite(fl), sr / (440 * 2 ** ((np.nan_to_num(fl) - 69) / 12)), tmax + 1)
+            cm = np.where(taus[None, :] > lim[:, None], 1.0, cm)
         rms[idx] = np.sqrt(e0[:, 0] / win)
         below = cm[:, tmin:] < thr
         has = below.any(1)
@@ -506,7 +551,7 @@ def frame_rms(x, hop=HOP, win=640):
     return np.sqrt((view.astype(np.float64) ** 2).mean(1) + 1e-12)
 
 
-def vocal_pitch(midi, ap, xv, xo, ratio_db=-16.0, gap=0.25):
+def vocal_pitch(midi, ap, xv, xo, ratio_db=-26.0, gap=0.25, ap_max=0.45, floor=0.03, short=0.15, smooth=5, below=None):
     """Decide where the singer is actually singing and clean up the pitch line.
 
     Singing means YIN found a periodic pitch AND the separated vocal is a real part of the original
@@ -519,18 +564,22 @@ def vocal_pitch(midi, ap, xv, xo, ratio_db=-16.0, gap=0.25):
         rv, ro = np.pad(rv, (0, n - len(rv))), np.pad(ro, (0, n - len(ro)))
     ratio = 20 * np.log10(np.maximum(rv, 1e-9) / np.maximum(ro, 1e-9))
     loud = np.percentile(rv, 95) if len(rv) else 1
-    voiced = np.isfinite(midi) & (ap < 0.35) & (ratio > ratio_db) & (rv > loud * 0.03)
+    voiced = np.isfinite(midi) & (ap < ap_max) & (ratio > ratio_db) & (rv > loud * floor)
     m = np.where(voiced, midi, np.nan)
     ref = medfilt(m, 61)
     for k in (12, -12, 24, -24):
         slip = np.isfinite(ref) & (np.abs(m - ref - k) < 3)
         m[slip] -= k
+    if below:
+        # far under the line around it, in the middle of singing: the bass leaking into the vocal stem
+        wide = medfilt(m, 201)
+        m[np.isfinite(wide) & (m < wide - below)] = np.nan
     v = np.isfinite(m)
     d = np.diff(np.r_[0, v.astype(np.int8), 0])
     for s0, e0 in zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]):
         if e0 - s0 < 5:
             m[s0:e0] = np.nan
-    g, i = int(gap * SR / HOP), 0
+    g, gs, i = int(gap * SR / HOP), int(short * SR / HOP), 0
     while i < n:
         if np.isnan(m[i]):
             j = i
@@ -538,12 +587,33 @@ def vocal_pitch(midi, ap, xv, xo, ratio_db=-16.0, gap=0.25):
                 j += 1
             if 0 < i and j < n and j - i <= g and abs(m[i - 1] - m[j]) < 2.5:
                 m[i:j] = np.linspace(m[i - 1], m[j], j - i + 2)[1:-1]
+            elif 0 < i and j < n and j - i <= gs:
+                # a consonant between two sung notes: each side holds its pitch up to the middle
+                h = (i + j) // 2
+                m[i:h], m[h:j] = m[i - 1], m[j]
             i = j
         else:
             i += 1
-    ms = medfilt(m, 9)
+    ms = medfilt(m, smooth) if smooth > 1 else m.copy()
     ms[np.isnan(m)] = np.nan
     return ms, ratio
+
+
+def sung_line(x, xo):
+    """The cleaned sung pitch line of the vocal stem x (with xo, the original mix, for the bleed check).
+    Where the pitch falls far under the sung line around it, the bass has leaked into the stem: those
+    frames are tracked again, kept above that line. Returns (line in semitones, vocal-to-mix ratio)."""
+    midi, ap, _ = yin_track(x, thr=0.25)
+    m, ratio = vocal_pitch(midi, ap, x, xo)
+    wide = medfilt(m, 201)
+    low = np.isfinite(midi) & np.isfinite(wide) & (midi < wide - BASS_GAP)
+    if low.any():
+        midi2, ap2, _ = yin_track(x, thr=0.25, floor_midi=np.where(low, wide - BASS_GAP, np.nan))
+        # the bass still muddies these frames, so a pitch that lands back on the line is trusted
+        fix = low & (np.abs(midi2 - wide) < 7)
+        midi, ap = np.where(fix, midi2, midi), np.where(fix, np.minimum(ap2, 0.3), ap)
+        m, ratio = vocal_pitch(midi, ap, x, xo)
+    return m, ratio
 
 
 def tuning_offset(m):
@@ -555,7 +625,40 @@ def tuning_offset(m):
     return float(np.angle(np.exp(1j * ang).mean()) / (2 * np.pi))
 
 
-def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.1, note_db=-12.5):
+def dp_notes(m, dt, cost):
+    """Split each sung phrase into the semitone notes that keep the most of the sung line within half a
+    semitone of its note, paying `cost` (in frames) for every new note: the best such split, found
+    with dynamic programming. A higher cost gives fewer, longer notes."""
+    notes = []
+    v = np.isfinite(m)
+    d = np.diff(np.r_[0, v.astype(np.int8), 0])
+    for s0, e0 in zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]):
+        x = m[s0:e0]
+        P = np.arange(int(np.floor(x.min())) - 1, int(np.ceil(x.max())) + 2)
+        # 0 within half a semitone, rising to 1 a full semitone away
+        c = np.clip((np.abs(x[:, None] - P[None, :]) - 0.5) / 0.5, 0, 1)
+        T, K = c.shape
+        D = c[0].copy()
+        back = np.zeros((T, K), np.int32)
+        for t in range(1, T):
+            j = int(np.argmin(D))
+            switch = D[j] + cost
+            stay = D <= switch
+            back[t] = np.where(stay, np.arange(K), j)
+            D = np.where(stay, D, switch) + c[t]
+        k = int(np.argmin(D))
+        path = np.empty(T, np.int32)
+        for t in range(T - 1, -1, -1):
+            path[t] = k
+            k = back[t, k]
+        ch = np.nonzero(np.diff(path))[0] + 1
+        for a, b in zip(np.r_[0, ch], np.r_[ch, T]):
+            notes.append([(s0 + a) * dt, (s0 + b) * dt, int(P[path[a]])])
+    return notes
+
+
+def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.03, note_db=-24.0, merge_gap=0.03, repitch=True, refine=0.1, split=0.7, hold=4,
+             min_sung=0.03, iso=0.12, dp=0.0):
     """Split the pitch line into karaoke-style notes.
     A new note starts only when the pitch stays more than 0.7 semitone from the current one for 60 ms,
     so vibrato and scoops do not chop a held note. Fragments shorter than minnote join the neighbour
@@ -563,6 +666,9 @@ def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.1, note_db=-12.5):
     an octave away from the notes around it is moved back."""
     n = len(m)
     notes, i = [], 0
+    if dp:
+        notes = dp_notes(m, dt, dp)
+        i = n
     while i < n:
         if not np.isfinite(m[i]):
             i += 1
@@ -571,9 +677,9 @@ def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.1, note_db=-12.5):
         cur = int(round(float(np.median(head[np.isfinite(head)]))))
         start, j, run0 = i, i, None
         while j < n and np.isfinite(m[j]):
-            if abs(m[j] - cur) > 0.7:
+            if abs(m[j] - cur) > split:
                 run0 = j if run0 is None else run0
-                if j - run0 + 1 >= 6:
+                if j - run0 + 1 >= hold:
                     notes.append([start * dt, run0 * dt, cur])
                     start, cur, run0 = run0, int(round(float(np.median(m[run0:j + 1])))), None
             else:
@@ -609,9 +715,38 @@ def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.1, note_db=-12.5):
             if not len(ok):
                 continue
             s0, s1 = ok[0], ok[-1] + 1
-            if (s1 - s0) * dt >= 0.06 and np.median(r[s0:s1]) >= note_db:
+            if (s1 - s0) * dt >= min_sung and np.median(r[s0:s1]) >= note_db:
                 kept.append([(i0 + s0) * dt, (i0 + s1) * dt, p])
         notes = kept
+    if repitch:
+        # a note's pitch is where the voice settles, not the scoop it starts with: the median of its
+        # sung frames with the first and last 30 ms left out
+        for nt in notes:
+            i0, i1 = int(round(nt[0] / dt)), int(round(nt[1] / dt))
+            if i1 - i0 > 8:
+                i0, i1 = i0 + 3, i1 - 3
+            v = m[i0:i1]
+            v = v[np.isfinite(v)]
+            if len(v):
+                nt[2] = int(round(float(np.median(v))))
+    if refine:
+        # move the line between two touching notes to where the sung pitch actually crosses from one to
+        # the other (the frames closest to each note's pitch), at most `refine` seconds either way
+        r = int(round(refine / dt))
+        for L, R in zip(notes, notes[1:]):
+            if L[2] == R[2] or R[0] - L[1] > 0.03:
+                continue
+            b0 = int(round(L[1] / dt))
+            keep = int(round(minnote / dt))      # never squeeze a note below the shortest allowed
+            lo, hi = max(int(round(L[0] / dt)) + keep, b0 - r), min(int(round(R[1] / dt)) - keep, b0 + r)
+            if hi <= lo:
+                continue
+            seg = m[lo:hi]
+            # score of each split point: frames left of it near L's pitch plus frames right of it near R's
+            okL = np.nan_to_num(np.abs(seg - L[2]) < np.abs(seg - R[2])).astype(np.int32)
+            gain = np.r_[0, np.cumsum(okL)] + np.r_[np.cumsum((1 - okL)[::-1])[::-1], 0]
+            cut = lo + int(np.argmax(gain))
+            L[1] = R[0] = cut * dt
     for _ in range(2):
         for k, (a, b, p) in enumerate(notes):
             ctx = [(x[1] - x[0], x[2]) for j2, x in enumerate(notes) if j2 != k and abs(x[0] - a) < 3]
@@ -626,9 +761,13 @@ def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.1, note_db=-12.5):
                     if abs(p + kk - med) <= 6:
                         notes[k][2] = p + kk
                         break
+    if iso:
+        # a lone blip with nothing sung around it is a breath, a click or bleed, not a note to sing
+        notes = [x for k, x in enumerate(notes) if x[1] - x[0] >= iso
+                 or (k > 0 and x[0] - notes[k - 1][1] < 0.15) or (k + 1 < len(notes) and notes[k + 1][0] - x[1] < 0.15)]
     out = []
     for a, b, p in notes:
-        if out and out[-1][2] == p and a - out[-1][1] < 0.1:
+        if out and out[-1][2] == p and a - out[-1][1] < merge_gap:
             out[-1][1] = b
         else:
             out.append([a, b, p])
@@ -667,8 +806,10 @@ def contour(m, notes, K, dt=HOP / SR, step=0.05):
 
 
 # ---------------------------------------------------------------- the whole thing
-def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4):
-    """Returns (notes [[start, dur, midi]], contour, analysis) on the karaoke timeline, or raises."""
+def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4, video=None):
+    """Returns (notes [[start, dur, midi]], contour, analysis) on the karaoke timeline, or raises.
+    kara_path can be the karaoke audio alone, or a function returning its path once it has downloaded (so
+    the search can start first); video (the same) is only needed for the lyric-wipe fallback."""
     say('original', 0.05, 'Looking for the original song')
     if original:
         cands = [{'id': (re.search(r'(?:v=|youtu\.be/|shorts/|embed/)([\w-]{11})', original) or [None, 'given'])[1],
@@ -680,11 +821,17 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
         if not cands:
             raise RuntimeError(f'no original recording was found on YouTube for "{q}"')
     say('original', 0.1, 'Comparing with the karaoke track')
+    # the first three are compared anyway, so fetch them together
+    ex = ThreadPoolExecutor(3)
+    fetch = {c['id']: ex.submit(download_audio, ytdlp, c['url'], os.path.join(work, f'orig-{c["id"]}.m4a')) for c in cands[:3]}
+    if callable(kara_path):
+        kara_path = kara_path()
     xk = load_audio(kara_path, CSR)
     best, err = None, ''
     for i, c in enumerate(cands):
         try:
-            path = download_audio(ytdlp, c['url'], os.path.join(work, f'orig-{c["id"]}.m4a'))
+            path = fetch[c['id']].result() if c['id'] in fetch else \
+                download_audio(ytdlp, c['url'], os.path.join(work, f'orig-{c["id"]}.m4a'))
         except Exception as e:
             err = str(e)
             continue
@@ -697,8 +844,9 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
         say('original', 0.1 + 0.2 * (i + 1) / len(cands), f'Compared {i + 1} of {len(cands)} recordings')
         if best is None or gain > best['gain']:
             best = c
-        if gain > 0.18:      # clearly the same song; no need to look further
-            break
+        if i >= 2 and best is not None and best['gain'] > 0.18:
+            break        # the best of the first three; later ones rank lower and are rarely better
+    ex.shutdown(wait=False, cancel_futures=True)
     if best is None:
         raise RuntimeError(err or 'the original song could not be downloaded')
     if best['gain'] < 0.12:
@@ -709,8 +857,7 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
     voc = separate(media, best['path'], os.path.join(work, f'vocals-{best["id"]}.wav'))
     say('pitch', 0.75, 'Following the sung pitch')
     x = load_audio(voc, SR)
-    midi, ap, _ = yin_track(x, thr=0.25)
-    m, ratio = vocal_pitch(midi, ap, x, load_audio(best['path'], SR))
+    m, ratio = sung_line(x, load_audio(best['path'], SR))
     tune = tuning_offset(m)
     m = m - tune + best['shift']
     notes = to_notes(m, ratio)
@@ -725,14 +872,16 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
     else:
         say('align', 0.78, 'Reading the lyric wipe to fine-tune the timing')
         try:
-            onsets = wipe_onsets(wipe_activity(kara_path, duration, procs))
+            onsets = wipe_onsets(wipe_activity((video() if callable(video) else video) or kara_path, duration, procs))
         except Exception:
             onsets = np.array([])
         K, snapped, phrases = snap_phrases(notes, K0, onsets)
+    Kd = K
+    K = lambda t: Kd(t) + LATE
     out = []
     for s0, e0, p in notes:
         a, b = K(s0), K(e0)
-        if b - a >= 0.05 and a >= 0 and (not duration or a < duration):
+        if b - a >= 0.03 and a >= 0 and (not duration or a < duration):
             out.append([round(a, 3), round(b - a, 3), int(p)])
     sung = (to >= notes[0][0]) & (to <= notes[-1][1])
     offs = (tk - to)[sung] if sung.any() else tk - to
