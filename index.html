@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.13.0">
+<meta name="ongaku-renshuu-version" content="1.13.1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -245,9 +245,11 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
 .kempty{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--wood-dim);font-size:16px}
 .klyrics{position:absolute;left:4%;right:4%;bottom:7%;display:flex;flex-direction:column;gap:10px;pointer-events:none;
   font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",var(--ui);font-weight:700;font-size:clamp(20px,3.4vw,44px);line-height:1.25}
-.klyrics .kl{position:relative;display:block;color:#fff;-webkit-text-stroke:5px #111;paint-order:stroke fill;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.klyrics .kl{display:block;color:#fff;-webkit-text-stroke:5px #111;paint-order:stroke fill;white-space:nowrap}
 .klyrics .kl:nth-child(1){text-align:left}.klyrics .kl:nth-child(2){text-align:right}
-.klyrics .kl i{position:absolute;inset:0;font-style:normal;color:var(--brass-light);clip-path:inset(0 calc(100% - var(--w,0%)) 0 0)}
+/* the wipe is a fraction of the words' own width, so the words sit in their own box */
+.klyrics .kt{position:relative;display:inline-block;max-width:100%;vertical-align:top;overflow:hidden;text-overflow:ellipsis}
+.klyrics .kt i{position:absolute;inset:0;font-style:normal;color:var(--brass-light);clip-path:inset(0 calc(100% - var(--w,0%)) 0 0)}
 .kstage.novideo .klyrics,.kstage.audioonly .klyrics{bottom:auto;top:52%}
 .kstage.audioonly{background:radial-gradient(ellipse at 50% 120%,#3a2018 0%,#1a0f0b 55%,#0c0908 100%)}
 .kstage.audioonly video{visibility:hidden}
@@ -4181,7 +4183,7 @@ function drawLyrics(t){
   if(!want){ if(lyricSig){ box.innerHTML = ''; lyricSig = ''; } return; }
   const vis = kara.lines.filter(l => l.t0 <= t && t < l.t1).sort((a, b) => (a.y || 0) - (b.y || 0)).slice(0, 2);
   const sig = vis.map(l => l.t0 + l.text).join('|');
-  if(sig !== lyricSig){ lyricSig = sig; box.innerHTML = vis.map(l => `<span class="kl">${esc(l.text)}<i>${esc(l.text)}</i></span>`).join(''); }
+  if(sig !== lyricSig){ lyricSig = sig; box.innerHTML = vis.map(l => `<span class="kl"><span class="kt">${esc(l.text)}<i>${esc(l.text)}</i></span></span>`).join(''); }
   [...box.children].forEach((el, i) => { el.style.setProperty('--w', (lineWipe(vis[i], t) * 100).toFixed(1) + '%'); });
 }
 document.addEventListener('keydown', e => {
