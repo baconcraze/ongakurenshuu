@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.13.1">
+<meta name="ongaku-renshuu-version" content="1.13.2">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -3816,7 +3816,7 @@ async function karaLoad(id, autoplay){
   try{ js = await (await fetch(meta.song, {cache:'no-store'})).json(); }catch(e){ toast('That song could not be opened.'); return; }
   kara.song = js; kara.id = id;
   kara.adj = Object.assign({key:0}, kAdjAll()[id] || {});
-  kara.notes = (js.notes || []).map(([t, d, m]) => ({t, e:t + d, m, act:0, hit:0, close:0}));
+  kara.notes = tidyNotes((js.notes || []).map(([t, d, m]) => ({t, e:t + d, m})));
   kara.contour = Array.isArray(js.contour) ? js.contour : [];
   kara.pops = []; kara.lastTarget = null; kara.combo = 0; kara.extra = 0;
   kara.lines = (js.lyrics || []).filter(l => l.text);
@@ -3837,6 +3837,35 @@ function playQueueHead(){
   karaLoad(item.id, true);
 }
 const kTarget = t => { for(const n of kara.notes){ if(n.t > t) break; if(t < n.e) return n; } return null; };
+// A guide from the original vocal follows every slide, so it has many notes under 80 ms. Merging those into the
+// note beside them (nearest in pitch) costs about 5 points of pitch accuracy against the acapella benchmark, so it
+// is only done for the bars on screen: each drawn note keeps its exact parts, and a sung frame is judged against
+// whichever is closer, the drawn bar or the exact note under it.
+const TIDY = 0.08;
+function tidyNotes(fine){
+  let ns = fine.map(n => ({t:n.t, e:n.e, m:n.m, parts:[n]}));
+  for(;;){
+    let best = null;
+    ns.forEach((n, k) => {
+      if(n.e - n.t >= TIDY) return;
+      const L = k > 0 && n.t - ns[k - 1].e < 0.03 ? ns[k - 1] : null, R = k + 1 < ns.length && ns[k + 1].t - n.e < 0.03 ? ns[k + 1] : null;
+      if(!L && !R) return;
+      const to = !R || (L && Math.abs(L.m - n.m) <= Math.abs(R.m - n.m)) ? L : R;
+      if(!best || n.e - n.t < best.d) best = {d:n.e - n.t, k, to};
+    });
+    if(!best) break;
+    const n = ns[best.k], to = best.to;
+    to.t = Math.min(to.t, n.t); to.e = Math.max(to.e, n.e); to.parts = to === ns[best.k - 1] ? to.parts.concat(n.parts) : n.parts.concat(to.parts);
+    ns.splice(best.k, 1);
+  }
+  const out = [];
+  for(const n of ns){
+    const p = out[out.length - 1];
+    if(p && p.m === n.m && n.t - p.e < 0.03){ p.e = n.e; p.parts = p.parts.concat(n.parts); } else out.push(n);
+  }
+  return out.map(n => Object.assign(n, {act:0, hit:0, close:0}));
+}
+const partAt = (n, t) => n.parts.find(q => t >= q.t && t < q.e) || n;
 // Difficulty, like a karaoke machine's scoring levels. on: how close counts as on pitch, in semitones (0.5 is
 // 50 cents); close: half credit; skip: the start of each note left unjudged, so sliding into a note is free;
 // octave: whether the guide's octave matters (otherwise any octave counts, for every voice range);
@@ -4001,7 +4030,9 @@ function videoRect(){
 function fitView(now){
   const t = kv.currentTime || 0, key = kara.adj.key || 0;
   const near = kara.notes.filter(n => n.e > t - 4 && n.t < t + 10);
-  const src = near.length ? near : kara.notes;
+  // the range follows the real notes; a stray blip far from the tune would squash everything else
+  const held = near.filter(n => n.e - n.t >= 0.12);
+  const src = held.length ? held : near.length ? near : kara.notes;
   if(!src.length) return;
   let lo = Math.min(...src.map(n => n.m)) + key - 2, hi = Math.max(...src.map(n => n.m)) + key + 2;
   if(hi - lo < 12){ const c = (hi + lo) / 2; lo = c - 6; hi = c + 6; }
@@ -4029,7 +4060,11 @@ function karaFrame(){
   const target = kara.song ? kTarget(tt) : null;
   let dev = null;
   const lv = kLevel();
-  if(sungMidi != null && target){ dev = lv.octave ? sungMidi - (target.m + key) : ((sungMidi - (target.m + key)) % 12 + 18) % 12 - 6; }
+  if(sungMidi != null && target){
+    const off = mm => lv.octave ? sungMidi - (mm + key) : ((sungMidi - (mm + key)) % 12 + 18) % 12 - 6;
+    const a = off(target.m), b = off(partAt(target, tt).m);
+    dev = Math.abs(b) < Math.abs(a) ? b : a;
+  }
   const live = kara.song && !kv.paused && !kv.seeking;
   if(live && m && !target && sungMidi != null && settings.karaExtra && !nearNote(tt, 0.4)){
     const step = kara.lastExtraT != null ? Math.min(0.1, Math.max(0, tt - kara.lastExtraT)) : 0;
@@ -4079,8 +4114,8 @@ function drawLane(t, tt, key, target, sungMidi, dev){
   const lo = kara.view.lo, hi = kara.view.hi, span = hi - lo;
   const pps = L.w / 6, px0 = L.x + L.w * 0.22;
   const X = time => px0 + (time - t) * pps, Y = midi => L.y + L.h - 6 - (midi - lo) / span * (L.h - 12);
-  // see-through when the lane sits over lyrics, solid when it hides the video's own bars
-  c.fillStyle = st || !vid ? 'rgba(12,9,8,0.95)' : 'rgba(12,9,8,0.72)'; c.fillRect(L.x, L.y, L.w, L.h);
+  // solid: most karaoke videos have pitch bars of their own up there, and two sets of bars at once are unreadable
+  c.fillStyle = 'rgba(12,9,8,0.95)'; c.fillRect(L.x, L.y, L.w, L.h);
   c.save(); c.beginPath(); c.rect(L.x, L.y, L.w, L.h); c.clip();
   c.lineWidth = 1;
   for(let p = Math.ceil(lo); p <= hi; p++){
