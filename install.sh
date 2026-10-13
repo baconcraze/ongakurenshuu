@@ -138,13 +138,13 @@ cat > "$DESKTOP_FILE" <<DESK
 Type=Application
 Name=Ongaku Renshuu
 Name[ja]=音楽練習
-GenericName=Tab Player
-Comment=Play, loop and practice guitar and bass tabs
+GenericName=Music Practice
+Comment=Practice guitar and bass tabs, and sing karaoke with a pitch guide
 Exec=$APP_DIR/ongaku-renshuu.sh
 Icon=ongaku-renshuu
 Terminal=false
 Categories=AudioVideo;Audio;Music;Education;
-Keywords=guitar;bass;tab;tablature;practice;ongaku;renshuu;
+Keywords=guitar;bass;tab;tablature;practice;karaoke;singing;ongaku;renshuu;
 DESK
 refresh_menus
 ok "Added Ongaku Renshuu to your application menu"
