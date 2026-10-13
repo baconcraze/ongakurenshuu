@@ -12,8 +12,8 @@ need that: a guide 0.1 s late shows the previous note for a third of a short one
 Used by karaoke.py, which falls back to reading the video's own pitch bars when this fails.
 Run on its own for testing: vocalguide.py KARAOKE_MEDIA_FILE --title TITLE [--original URL]
 """
-import json, os, re, shutil, subprocess, sys
-from concurrent.futures import ThreadPoolExecutor
+import json, os, re, shutil, subprocess, sys, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
@@ -76,7 +76,8 @@ GOOD = re.compile(r'official|公式|- topic|provided to youtube|audio|オフィ�
 
 
 def find_candidates(ytdlp, title, duration, want=4, exclude=()):
-    """Search YouTube for the original recording; rank by how close the length is and how official it looks."""
+    """Search YouTube for the original recording; rank by how close the length is and how official it looks.
+    duration can be a function, asked only once the searches are back (so they need not wait for it)."""
     q = search_query(title)
     seen, cands = set(), []
 
@@ -89,6 +90,8 @@ def find_candidates(ytdlp, title, duration, want=4, exclude=()):
             return []
     with ThreadPoolExecutor(2) as ex:        # both searches at once
         results = list(ex.map(search, (q, q + ' official audio')))
+    if callable(duration):
+        duration = duration()
     for entries in results:
         for e in entries:
             vid, d = e.get('id'), e.get('duration')
@@ -118,13 +121,15 @@ def find_candidates(ytdlp, title, duration, want=4, exclude=()):
     return q, [c[1] for c in cands[:want]]
 
 
-def download_audio(ytdlp, url, dest):
-    """Audio only, saved as dest.m4a (or whatever YouTube offers)."""
+def download_audio(ytdlp, url, dest, low=False):
+    """Audio only, saved as dest.m4a (or whatever YouTube offers). low takes the smallest stream (about a
+    third of the size): enough to compare recordings, but the vocal is separated from the full one, and an
+    Opus copy can sit some 40 ms off it, so its timing is not used."""
     base = os.path.splitext(dest)[0]
     for f in os.listdir(os.path.dirname(dest) or '.'):
-        if f.startswith(os.path.basename(base) + '.'):
+        if f.startswith(os.path.basename(base) + '.') and not f.endswith('.part'):
             return os.path.join(os.path.dirname(dest), f)
-    for fmt in ('ba[ext=m4a]/ba', 'ba*', 'b'):
+    for fmt in (('139/249/250/wa', 'wa*', 'ba') if low else ('ba[ext=m4a]/ba', 'ba*', 'b')):
         p = subprocess.run(ytdlp + ['--no-playlist', '--no-warnings', '-q', '-f', fmt, '-o', base + '.%(ext)s', '--', url],
                            capture_output=True, text=True, timeout=600)
         got = [f for f in os.listdir(os.path.dirname(dest) or '.') if f.startswith(os.path.basename(base) + '.') and not f.endswith('.part')]
@@ -247,7 +252,8 @@ def offset_map(Ck, Co, lag, dur_o):
     keep = np.abs(o - smooth) < 0.5          # a window that matched another repeat of the phrase
     t, o, w = t[keep], o[keep], w[keep]
     # second pass: each window again, now searching only near the trusted line
-    prior = lambda x: float(np.interp(x, t, running_median(t, o, w, 16.0)))
+    line = running_median(t, o, w, 16.0)
+    prior = lambda x: float(np.interp(x, t, line))
     wl = window_lags(Ck, Co, prior, 0.6, win_s=8.0, hop_s=0.5)
     good = (wl[:, 2] > 0.45) & (wl[:, 3] > 0.0)
     if good.sum() >= 5:
@@ -330,17 +336,19 @@ def refine_onsets(Ek, Eo, t, o, reach=0.15, win_s=8.0, hop_s=1.0, pool_s=15.0):
     return pt, running_median(pt, po, pw, 20.0), True
 
 
-def align(kara, orig):
+def align(kara, orig, kf=None):
     """Line the original up with the karaoke track.
     Returns (original times, karaoke times) for mapping, key shift (karaoke = original + shift),
     correlation, gain over chance (about 0.2 for the same song, under 0.1 for others), and whether the
-    timing was sharpened to about 10 ms from the beats (False leaves it at about 0.1 s)."""
-    Ck, Co0 = chroma(kara), chroma(orig)
+    timing was sharpened to about 10 ms from the beats (False leaves it at about 0.1 s).
+    kf is the karaoke track's (chroma, onset_env), when it is compared with several recordings."""
+    Ck, Ek = kf or (chroma(kara), onset_env(kara))
+    Co0 = chroma(orig)
     lag, shift, corr, gain = global_match(Ck, Co0)
     Co = np.roll(Co0, shift, axis=1)
     dur_o = len(orig) / CSR
     t, o = offset_map(Ck, Co, lag, dur_o)
-    t, o, fine = refine_onsets(onset_env(kara), onset_env(orig), t, o)
+    t, o, fine = refine_onsets(Ek, onset_env(orig), t, o)
     dt = CHOP / CSR
     to = np.arange(0, dur_o + dt, dt)
     tk = np.maximum.accumulate(to + np.interp(to, t, o))     # constant beyond the first and last good window
@@ -461,36 +469,80 @@ def install_separator(media):
     subprocess.check_call(pip + ['numpy', 'demucs'], stdout=subprocess.DEVNULL)
 
 
+class Separator:
+    """separate.py --serve in the separator's own Python, started as soon as an import begins so the model
+    is loaded (and on the GPU) by the time the original song has downloaded. separate() writes the vocal
+    stem as 16 kHz mono wav; calls take turns."""
+    def __init__(self, media):
+        self.media, self.p, self.lock = media, None, threading.Lock()
+        self.msg = 'Separating the vocal from the original song'
+        self.start()
+
+    def start(self):
+        py = os.path.join(venv_dir(self.media), 'bin', 'python')
+        if os.path.exists(py):
+            try:
+                self.p = subprocess.Popen([py, os.path.join(HERE, 'separate.py'), '--serve'], stdin=subprocess.PIPE,
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            except OSError:
+                self.p = None
+
+    def separate(self, src, out_wav, quiet=False):
+        """quiet: no progress lines (for a separation started ahead of time, while other steps report)."""
+        if os.path.exists(out_wav):
+            return out_wav
+        with self.lock:
+            if self.p is None or self.p.poll() is not None:
+                # not installed yet, or it stopped: install if needed and start again
+                if not separator_ready(self.media):
+                    install_separator(self.media)
+                self.start()
+                if self.p is None:
+                    raise RuntimeError('the vocal separator could not be started')
+            tmp = out_wav + '.tmp.wav'
+            self.p.stdin.write(f'{src}\t{tmp}\n')
+            self.p.stdin.flush()
+            tail = []
+            for line in self.p.stdout:
+                line = line.strip()
+                m = re.match(r'progress ([\d.]+)', line)
+                if m and not quiet:
+                    say('vocals', 0.35 + 0.35 * float(m.group(1)), self.msg)
+                elif line.startswith('cpu '):
+                    self.msg = 'Separating the vocal on the CPU (the graphics card is busy), this takes longer'
+                    say('vocals', None, self.msg)
+                elif line == 'done':
+                    os.replace(tmp, out_wav)
+                    return out_wav
+                elif line.startswith('error'):
+                    raise RuntimeError('the vocal could not be separated: ' + line[6:])
+                elif line != 'ready':
+                    tail = (tail + [line])[-3:]
+            raise RuntimeError('the vocal could not be separated: ' + ' '.join(tail[-2:]))
+
+    def close(self):
+        if self.p and self.p.poll() is None:
+            try:
+                self.p.stdin.close()
+                self.p.wait(timeout=10)
+            except Exception:
+                self.p.kill()
+
+
 def separate(media, src, out_wav):
-    """Run separate.py in the separator's own Python. It writes the vocal stem as 16 kHz mono wav."""
-    if os.path.exists(out_wav):
-        return out_wav
-    if not separator_ready(media):
-        install_separator(media)
-    py = os.path.join(venv_dir(media), 'bin', 'python')
-    p = subprocess.Popen([py, os.path.join(HERE, 'separate.py'), src, out_wav], stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, text=True)
-    tail = []
-    msg = 'Separating the vocal from the original song'
-    for line in p.stdout:
-        tail = (tail + [line.strip()])[-5:]
-        m = re.match(r'progress ([\d.]+)', line)
-        if m:
-            say('vocals', 0.35 + 0.35 * float(m.group(1)), msg)
-        elif line.startswith('cpu '):
-            msg = 'Separating the vocal on the CPU (the graphics card is busy), this takes longer'
-            say('vocals', None, msg)
-    p.wait()
-    if p.returncode != 0 or not os.path.exists(out_wav):
-        raise RuntimeError('the vocal could not be separated: ' + ' '.join(tail[-2:]))
-    return out_wav
+    """One song on its own (the separator starts, separates, and stops)."""
+    sep = Separator(media)
+    try:
+        return sep.separate(src, out_wav)
+    finally:
+        sep.close()
 
 
 # ---------------------------------------------------------------- following the sung pitch
-def yin_track(x, sr=SR, hop=HOP, win=640, fmin=60.0, fmax=1000.0, thr=0.18, floor_midi=None):
+def yin_track(x, sr=SR, hop=HOP, win=640, fmin=60.0, fmax=1000.0, thr=0.18, floor_midi=None, only=None):
     """YIN pitch per 10 ms frame. Returns midi (nan when unvoiced), aperiodicity, and rms.
     floor_midi (per frame, nan for none) keeps each frame's pitch above that note, so a louder bass
-    line leaking under the voice is not picked instead of it."""
+    line leaking under the voice is not picked instead of it. only (a frame mask) tracks just those frames."""
     tmax = int(sr / fmin)
     tmin = int(sr / fmax)
     n = win + tmax
@@ -501,8 +553,9 @@ def yin_track(x, sr=SR, hop=HOP, win=640, fmin=60.0, fmax=1000.0, thr=0.18, floo
     rms = np.zeros(count, np.float32)
     view = np.lib.stride_tricks.sliding_window_view(x, n)
     taus = np.arange(tmax + 1)
-    for i0 in range(0, count, 1024):
-        idx = np.arange(i0, min(count, i0 + 1024))
+    sel = np.arange(count) if only is None else np.nonzero(only[:count])[0]
+
+    def block(idx):
         fr = view[idx * hop].astype(np.float64)
         head = fr[:, :win]
         r = np.fft.irfft(np.fft.rfft(fr, nfft) * np.conj(np.fft.rfft(head, nfft)), nfft)[:, :tmax + 1]
@@ -534,6 +587,9 @@ def yin_track(x, sr=SR, hop=HOP, win=640, fmin=60.0, fmax=1000.0, thr=0.18, floo
         p = t + np.where(np.abs(den) > 1e-9, 0.5 * (a - c) / np.where(den == 0, 1, den), 0)
         ap[idx] = b
         midi[idx] = 69 + 12 * np.log2(sr / p / 440)
+    # the blocks are independent, and numpy lets go of Python's lock in the FFTs: a few threads share them
+    with ThreadPoolExecutor(4) as ex:
+        list(ex.map(block, [sel[i0:i0 + 1024] for i0 in range(0, len(sel), 1024)]))
     return midi, ap, rms
 
 
@@ -547,8 +603,14 @@ def medfilt(v, k):
 
 def frame_rms(x, hop=HOP, win=640):
     n = max(1, (len(x) - win) // hop)
-    view = np.lib.stride_tricks.sliding_window_view(x, win)[np.arange(n) * hop]
-    return np.sqrt((view.astype(np.float64) ** 2).mean(1) + 1e-12)
+    if win % hop or len(x) < win + hop:
+        view = np.lib.stride_tricks.sliding_window_view(x, win)[np.arange(n) * hop]
+        return np.sqrt((view.astype(np.float64) ** 2).mean(1) + 1e-12)
+    # each window is a few whole hops: add up the hops' energy once, then each window's hops (the same sums
+    # as squaring every window, with a hundredth of the memory traffic)
+    k = win // hop
+    e = (x[:(n + k - 1) * hop].astype(np.float64) ** 2).reshape(-1, hop).sum(1)
+    return np.sqrt(np.convolve(e, np.ones(k), 'valid')[:n] / win + 1e-12)
 
 
 def vocal_pitch(midi, ap, xv, xo, ratio_db=-26.0, gap=0.25, ap_max=0.45, floor=0.03, short=0.15, smooth=5, below=None):
@@ -608,7 +670,7 @@ def sung_line(x, xo):
     wide = medfilt(m, 201)
     low = np.isfinite(midi) & np.isfinite(wide) & (midi < wide - BASS_GAP)
     if low.any():
-        midi2, ap2, _ = yin_track(x, thr=0.25, floor_midi=np.where(low, wide - BASS_GAP, np.nan))
+        midi2, ap2, _ = yin_track(x, thr=0.25, floor_midi=np.where(low, wide - BASS_GAP, np.nan), only=low)
         # the bass still muddies these frames, so a pitch that lands back on the line is trusted
         fix = low & (np.abs(midi2 - wide) < 7)
         midi, ap = np.where(fix, midi2, midi), np.where(fix, np.minimum(ap2, 0.3), ap)
@@ -806,10 +868,22 @@ def contour(m, notes, K, dt=HOP / SR, step=0.05):
 
 
 # ---------------------------------------------------------------- the whole thing
-def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4, video=None):
+def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4, video=None, searched=None):
     """Returns (notes [[start, dur, midi]], contour, analysis) on the karaoke timeline, or raises.
     kara_path can be the karaoke audio alone, or a function returning its path once it has downloaded (so
-    the search can start first); video (the same) is only needed for the lyric-wipe fallback."""
+    the search can start first); video and duration can be functions too (the video is only needed for the
+    lyric-wipe fallback). searched (a threading.Event) is set once the search for the original is over, so
+    a caller can hold back a big download until then."""
+    sep = Separator(media)      # loads the model while the songs download
+    try:
+        return _build(sep, kara_path, title, duration, work, ytdlp, original, procs, video, searched)
+    finally:
+        sep.close()
+        if searched is not None:
+            searched.set()
+
+
+def _build(sep, kara_path, title, duration, work, ytdlp, original, procs, video, searched):
     say('original', 0.05, 'Looking for the original song')
     if original:
         cands = [{'id': (re.search(r'(?:v=|youtu\.be/|shorts/|embed/)([\w-]{11})', original) or [None, 'given'])[1],
@@ -820,41 +894,68 @@ def build(kara_path, title, duration, media, work, ytdlp, original=None, procs=4
         q, cands = find_candidates(ytdlp, title, duration, exclude={own.group(1)} if own else ())
         if not cands:
             raise RuntimeError(f'no original recording was found on YouTube for "{q}"')
+    if callable(duration):
+        duration = duration()
+    if searched is not None:
+        searched.set()
     say('original', 0.1, 'Comparing with the karaoke track')
-    # the first three are compared anyway, so fetch them together
-    ex = ThreadPoolExecutor(3)
-    fetch = {c['id']: ex.submit(download_audio, ytdlp, c['url'], os.path.join(work, f'orig-{c["id"]}.m4a')) for c in cands[:3]}
+    full = lambda c: os.path.join(work, f'orig-{c["id"]}.m4a')
+    stem = lambda c: os.path.join(work, f'vocals-{c["id"]}.wav')
+    ex = ThreadPoolExecutor(4)
+    # the first is usually the one kept: fetch it whole and separate it straight away, while the next two
+    # (only compared, so a small copy will do) download beside it
+    top = cands[0]
+    fetch = {top['id']: ex.submit(download_audio, ytdlp, top['url'], full(top))}
+    for c in cands[1:3]:
+        fetch[c['id']] = ex.submit(download_audio, ytdlp, c['url'], os.path.join(work, f'low-{c["id"]}.m4a'), True)
+    early = ex.submit(lambda: sep.separate(fetch[top['id']].result(), stem(top), quiet=True))
     if callable(kara_path):
         kara_path = kara_path()
     xk = load_audio(kara_path, CSR)
-    best, err = None, ''
-    for i, c in enumerate(cands):
+    kf = (chroma(xk), onset_env(xk))
+    best, err, done = None, '', 0
+
+    def compare(c, path):
+        nonlocal best, err, done
         try:
-            path = fetch[c['id']].result() if c['id'] in fetch else \
-                download_audio(ytdlp, c['url'], os.path.join(work, f'orig-{c["id"]}.m4a'))
-        except Exception as e:
-            err = str(e)
-            continue
-        try:
-            to, tk, shift, corr, gain, fine = align(xk, load_audio(path, CSR))
+            to, tk, shift, corr, gain, fine = align(None, load_audio(path, CSR), kf)
         except Exception as e:
             err = f'{c["title"]} could not be compared: {e}'
-            continue
+            return
         c.update(path=path, map=(to, tk), shift=shift, match=corr, gain=gain, fine=fine)
-        say('original', 0.1 + 0.2 * (i + 1) / len(cands), f'Compared {i + 1} of {len(cands)} recordings')
+        done += 1
+        say('original', 0.1 + 0.2 * done / min(3, len(cands)), f'Compared {done} of {min(3, len(cands))} recordings')
         if best is None or gain > best['gain']:
             best = c
-        if i >= 2 and best is not None and best['gain'] > 0.18:
+    by_future = {f: c for c in cands[:3] for f in [fetch[c['id']]]}
+    for f in as_completed(by_future):
+        try:
+            compare(by_future[f], f.result())
+        except Exception as e:
+            err = str(e)
+    for c in cands[3:]:
+        if best is not None and best['gain'] > 0.18:
             break        # the best of the first three; later ones rank lower and are rarely better
-    ex.shutdown(wait=False, cancel_futures=True)
+        try:
+            compare(c, download_audio(ytdlp, c['url'], os.path.join(work, f'low-{c["id"]}.m4a'), True))
+        except Exception as e:
+            err = str(e)
     if best is None:
+        ex.shutdown(wait=False, cancel_futures=True)
         raise RuntimeError(err or 'the original song could not be downloaded')
     if best['gain'] < 0.12:
+        ex.shutdown(wait=False, cancel_futures=True)
         if original:
             raise RuntimeError('the song at the link you gave does not match the karaoke track')
         raise RuntimeError(f'no recording on YouTube matched the karaoke track well enough (closest: {best["title"]})')
+    if best is not top:
+        # another recording matched better: fetch it whole, and take the timing from that copy
+        best['path'] = download_audio(ytdlp, best['url'], full(best))
+        to, tk, best['shift'], best['match'], best['gain'], best['fine'] = align(None, load_audio(best['path'], CSR), kf)
+        best['map'] = (to, tk)
     say('vocals', 0.35, 'Separating the vocal from the original song')
-    voc = separate(media, best['path'], os.path.join(work, f'vocals-{best["id"]}.wav'))
+    voc = early.result() if best is top else sep.separate(best['path'], stem(best))
+    ex.shutdown(wait=False)
     say('pitch', 0.75, 'Following the sung pitch')
     x = load_audio(voc, SR)
     m, ratio = sung_line(x, load_audio(best['path'], SR))

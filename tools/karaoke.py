@@ -13,8 +13,8 @@ Usage: karaoke.py URL_OR_FILE [--media DIR] [--method auto|vocals|bars] [--origi
                   [--no-lyrics] [--ollama URL] [--model NAME]
 Progress is printed as JSON lines: {"stage": ..., "progress": 0..1, "message": ...}
 """
-import argparse, base64, io, json, os, re, shutil, subprocess, sys, time, urllib.request
-from concurrent.futures import ThreadPoolExecutor
+import argparse, base64, io, json, os, re, shutil, subprocess, sys, threading, time, urllib.parse, urllib.request
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from multiprocessing import Pool
 
 import numpy as np
@@ -25,7 +25,7 @@ FPS = 8                   # analysis frame rate
 PAD = 14                  # rows kept above and below the staff
 
 
-_SAY = __import__('threading').Lock()
+_SAY = threading.Lock()
 
 
 def say(stage, progress=None, message=''):
@@ -37,8 +37,10 @@ def say(stage, progress=None, message=''):
 
 
 # ---------------------------------------------------------------- video access
-def frames(path, fps, ss=0.0, t=None):
-    cmd = ['ffmpeg', '-loglevel', 'error', '-ss', f'{ss:.3f}', '-i', path]
+def frames(path, fps, ss=0.0, t=None, threads=0):
+    # several of these run at once when a video is read in pieces; give each a few decoder threads, since
+    # one-per-core each makes them spin against each other (three times the CPU for the same frames)
+    cmd = ['ffmpeg', '-loglevel', 'error', '-threads', str(threads), '-ss', f'{ss:.3f}', '-i', path]
     if t:
         cmd += ['-t', f'{t:.3f}']
     cmd += ['-vf', f'fps={fps},scale={W}:{H}', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']
@@ -712,10 +714,17 @@ def fit_key(path, notes):
 
 
 # ---------------------------------------------------------------- lyrics
+def rgb_sum(F):
+    """R + G + B as int16 (adding the planes is about ten times faster than .sum(2))."""
+    g = F[..., 0].astype(np.int16)
+    g += F[..., 1]
+    g += F[..., 2]
+    return g
+
+
 def text_bands(F, ytop, ybot):
-    R = F[ytop:ybot].astype(np.int16)
-    E = np.abs(np.diff(R.sum(2), axis=1)) > 120
-    rows = E.mean(1) > 0.025
+    E = np.abs(np.diff(rgb_sum(F[ytop:ybot]), axis=1)) > 120
+    rows = np.count_nonzero(E, 1) > 0.025 * E.shape[1]
     out, y = [], 0
     while y < len(rows):
         if rows[y]:
@@ -732,8 +741,10 @@ def text_bands(F, ytop, ybot):
 
 def _lyric_chunk(args):
     path, ss, t, ytop = args
+    if not os.path.exists(path) and os.path.exists(path + '.part'):
+        path += '.part'           # still downloading
     out = []
-    for tt, F in frames(path, 4, ss=ss, t=t):
+    for tt, F in frames(path, 4, ss=ss, t=t, threads=2):
         bands = text_bands(F, ytop, H - 10)
         if not bands:
             out.append((tt, []))
@@ -743,7 +754,7 @@ def _lyric_chunk(args):
         items = []
         for (a, b, x0, x1) in main:
             crop = F[a:b, x0:x1 + 1]
-            g = crop.astype(np.int16).sum(2)
+            g = rgb_sum(crop)
             edge = np.abs(np.diff(g, axis=1)) > 120
             # coarse signature: edge density in 4x16 cells, robust to the colour wipe
             hh, ww = edge.shape
@@ -753,8 +764,8 @@ def _lyric_chunk(args):
                     blk = edge[r * hh // 4:(r + 1) * hh // 4, c * ww // 16:(c + 1) * ww // 16]
                     cells[r, c] = blk.mean() if blk.size else 0
             # sung share: saturated (coloured) text pixels versus white/grey ones inside the strokes
-            mx = crop.max(2).astype(np.int16)
-            mn = crop.min(2).astype(np.int16)
+            mx = np.maximum(np.maximum(crop[..., 0], crop[..., 1]), crop[..., 2]).astype(np.int16)
+            mn = np.minimum(np.minimum(crop[..., 0], crop[..., 1]), crop[..., 2]).astype(np.int16)
             sat = (mx - mn) > 90
             bright = mx > 150
             textish = bright & ~((mx - mn) < 40) | (bright & (mx - mn) < 40)
@@ -774,9 +785,9 @@ class LinesProcess:
         self.p.start()
 
     @staticmethod
-    def _run(send, path, dur, ytop, procs):
+    def _run(send, path, dur, ytop, procs, avail=None):
         try:
-            send.send(extract_lyric_lines(path, dur, ytop, procs, quiet=True))
+            send.send(extract_lyric_lines(path, dur, ytop, procs, quiet=True, avail=avail))
         except Exception as e:
             send.send(e)
 
@@ -788,17 +799,43 @@ class LinesProcess:
         return r
 
 
-def extract_lyric_lines(path, dur, ytop, procs, quiet=False):
+def extract_lyric_lines(path, dur, ytop, procs, quiet=False, avail=None):
+    """avail (a shared value) means path is still downloading: how many seconds of it are in so far (huge
+    once it is complete). Each piece is then read as soon as its part has arrived, and read again if it
+    came up short."""
     n = procs * 2
     L = dur / n
     jobs = [(path, i * L, L, ytop) for i in range(n)]
     rec = []
-    # when quiet, this runs beside the pitch guide; lower priority keeps the vocal separator fed
-    with Pool(procs, initializer=os.nice if quiet else None, initargs=(10,) if quiet else ()) as p:
-        for k, part in enumerate(p.imap_unordered(_lyric_chunk, jobs)):
-            rec += part
-            if not quiet:
-                say('lyrics', 0.05 + 0.35 * (k + 1) / n, 'Finding the lyric lines')
+    # when quiet, this runs beside the pitch guide; lower priority keeps the vocal separator fed. While the
+    # video downloads, the pieces come in one by one, so a few workers keep up (same pieces, same lines) and
+    # leave the memory bus to the pitch tracking
+    with Pool(procs if avail is None else max(2, procs // 4), initializer=os.nice if quiet else None,
+              initargs=(10,) if quiet else ()) as p:
+        if avail is None:
+            for k, part in enumerate(p.imap_unordered(_lyric_chunk, jobs)):
+                rec += part
+                if not quiet:
+                    say('lyrics', 0.05 + 0.35 * (k + 1) / n, 'Finding the lyric lines')
+        else:
+            waiting, running, late, hold = list(jobs), [], {}, {}
+            while waiting or running:
+                have = avail.value
+                for j in [j for j in waiting if j[1] + j[2] <= have and hold.get(j[1], 0) <= time.time()]:
+                    waiting.remove(j)
+                    running.append((j, p.apply_async(_lyric_chunk, (j,))))
+                for j, r in [x for x in running if x[1].ready()]:
+                    running.remove((j, r))
+                    part = r.get()
+                    if len(part) < int(j[2] * 4) - 1 and late.get(j[1], 0) < 2:
+                        # not all there yet (or the file was being renamed): again a little later
+                        if have > dur:
+                            late[j[1]] = late.get(j[1], 0) + 1
+                        hold[j[1]] = time.time() + 0.5
+                        waiting.append(j)
+                    else:
+                        rec += part
+                time.sleep(0.1)
     rec.sort(key=lambda r: r[0])
     # track lines: same place on screen and a similar edge signature
     tracks, live = [], []
@@ -961,11 +998,16 @@ def update_ytdlp(media):
     subprocess.check_call([os.path.join(venv, 'bin', 'pip'), 'install', '-q', '-U', 'yt-dlp'], stdout=subprocess.DEVNULL)
 
 
-def download(url, dest_dir, media, quiet=False):
-    """Download as H.264 + AAC mp4 so every browser can play it. Returns (path, info)."""
+def download(url, dest_dir, media, quiet=False, audio=None, progress=None):
+    """Download as H.264 + AAC mp4 so every browser can play it. Returns (path, info).
+    audio: a future for the same video's sound, already being downloaded; the picture then comes
+    without its own sound track and the two are put together here (the same streams, fetched once).
+    progress(fraction) is called while that picture-only video.mp4.part grows."""
     out = os.path.join(dest_dir, 'video.%(ext)s')
     # H.264 first (plays everywhere); YouTube sometimes refuses one format, so fall back to others
     fmts = ['bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]', 'bv*[height<=720]+ba/b[height<=720]', 'b']
+    if audio is not None:
+        fmts.insert(0, 'bv*[vcodec^=avc1][height<=720][ext=mp4]')
     updated = False
     fi = 0
     while True:
@@ -978,7 +1020,14 @@ def download(url, dest_dir, media, quiet=False):
             m = re.search(r'\[download\]\s+([\d.]+)%', line)
             if m and not quiet:
                 say('download', float(m.group(1)) / 100, 'Downloading the video')
+            if m and progress and audio is not None and fi == 0:
+                progress(float(m.group(1)) / 100)
         p.wait()
+        if p.returncode == 0 and audio is not None and fi == 0:
+            if add_sound(dest_dir, audio):
+                break
+            fi = 1          # no sound to add: fetch the video with its own
+            continue
         if p.returncode == 0:
             break
         blocked = any('403' in l or 'Sign in' in l or 'Requested format' in l or 'nsig' in l for l in log)
@@ -1009,6 +1058,29 @@ def download(url, dest_dir, media, quiet=False):
             raise RuntimeError('The download did not produce a video file.')
         path = os.path.join(dest_dir, cands[0])
     return path, info
+
+
+def add_sound(dest_dir, audio):
+    """Put the separately downloaded sound (a future for its path) into the picture-only video.mp4."""
+    try:
+        snd = audio.result()
+    except Exception:
+        snd = None
+    v = os.path.join(dest_dir, 'video.mp4')
+    if snd and os.path.exists(v):
+        tmp = os.path.join(dest_dir, 'video.mux.mp4')
+        # AAC is copied; anything else (an Opus fallback) becomes AAC, so every browser plays it. Either way
+        # the sound is the very file the pitch guide was timed against
+        codec = ['-c:a', 'copy'] if snd.endswith('.m4a') else ['-c:a', 'aac', '-b:a', '160k']
+        r = subprocess.run(['ffmpeg', '-loglevel', 'error', '-y', '-i', v, '-i', snd, '-map', '0:v:0', '-map', '1:a:0',
+                            '-c:v', 'copy'] + codec + ['-movflags', '+faststart', tmp])
+        if r.returncode == 0:
+            os.replace(tmp, v)
+            return True
+    for f in os.listdir(dest_dir):
+        if f.startswith('video.') and not f.endswith('.info.json'):
+            os.remove(os.path.join(dest_dir, f))
+    return False
 
 
 KARAOKE_TITLE = re.compile(r'カラオケ|karaoke|off\s*vocal|オフボーカル|instrumental|インスト|ニコカラ|노래방|伴奏', re.I)
@@ -1042,9 +1114,29 @@ def find_karaoke_video(ytdlp, info, exclude=()):
         if hits < min(2, len(words)):
             continue          # the artist's name alone would find their other songs
         cost = (abs(d - length) / max(30.0, length) * 5 if length and d else 2) - hits
+        # the lyrics should be on screen: karaoke videos and ones that say they have lyrics first, plain
+        # backing tracks (usually a still picture) last
+        if re.search(r'カラオケ|karaoke|ニコカラ|노래방', t, re.I):
+            cost -= 1
+        if re.search(r'歌詞|lyrics?|字幕|ガイド', t, re.I):
+            cost -= 1
+        if re.search(r'instrumental|伴奏|音源|bgm|off\s*vocal|オフボーカル', t, re.I) and not re.search(r'歌詞|lyrics?|字幕', t, re.I):
+            cost += 1.5
         if best is None or cost < best[0]:
             best = (cost, {'id': e['id'], 'title': t, 'duration': d, 'url': f"https://www.youtube.com/watch?v={e['id']}"})
     return best and best[1]
+
+
+def quick_title(url):
+    """A YouTube video's title from its oEmbed page (a fraction of a second, where yt-dlp takes one or two)."""
+    if not re.search(r'youtube\.com|youtu\.be', url):
+        return ''
+    try:
+        q = urllib.parse.urlencode({'url': url, 'format': 'json'})
+        with urllib.request.urlopen('https://www.youtube.com/oembed?' + q, timeout=5) as r:
+            return json.load(r).get('title') or ''
+    except Exception:
+        return ''
 
 
 def video_meta(url, media):
@@ -1109,7 +1201,7 @@ def main():
     dest = os.path.join(media, 'karaoke', sid)
     os.makedirs(dest, exist_ok=True)
     T0 = time.time()
-    fguide = url = None
+    fguide = url = early = None
     if a.lyrics_text:
         return lyrics_text(dest, a)
     try:
@@ -1127,28 +1219,57 @@ def main():
                 # the guide only needs the sound: build it from the karaoke audio while the video downloads
                 import vocalguide
                 say('download', 0, 'Looking at the link')
-                info, url = video_meta(a.source, media), a.source
-                if info.get('title') and not KARAOKE_TITLE.search(info['title']) and not a.original:
+                url = a.source
+                meta = ThreadPoolExecutor(1).submit(video_meta, url, media)
+                title = quick_title(url) or meta.result().get('title')
+                if title and not KARAOKE_TITLE.search(title) and not a.original:
                     # a link to the original song: find its karaoke video, and use the link for the pitch guide
                     say('download', 0, 'That is the original song, so looking for its karaoke video')
-                    k = find_karaoke_video(ytdlp_cmd(media), info, exclude={sid})
+                    k = find_karaoke_video(ytdlp_cmd(media), meta.result() or {'title': title}, exclude={sid})
                     if not k:
                         raise RuntimeError('That link is not a karaoke video, and no karaoke video of the song was found on '
                                            'YouTube. Paste a karaoke video link as well.')
-                    a.original, url = a.source, k['url']
-                    info = video_meta(url, media) or {'title': k['title'], 'duration': k['duration']}
+                    a.original, url, title = a.source, k['url'], k['title']
+                    meta = ThreadPoolExecutor(1).submit(video_meta, url, media)
                 say('download', 0, 'Downloading the video and the karaoke sound')
                 pool = ThreadPoolExecutor(2)
-                fvideo = pool.submit(download, url, dest, media, True)
                 fkara = pool.submit(vocalguide.download_audio, ytdlp_cmd(media), url, os.path.join(work_dir(dest), 'karaoke.m4a'))
-                if not info.get('duration'):
-                    info['duration'] = duration(fkara.result())
+
+                got = []
+
+                def length():
+                    # whichever comes first: the video's details, or the karaoke sound itself
+                    if not got:
+                        wait([meta, fkara], return_when=FIRST_COMPLETED)
+                        d = meta.result().get('duration') if meta.done() else None
+                        got.append(float(d) if d else duration(fkara.result()))
+                    return got[0]
+
                 # the search for the original starts now; the karaoke sound is only needed for comparing
-                fguide = ThreadPoolExecutor(1).submit(vocalguide.build, lambda: fkara.result(), info.get('title') or sid,
-                                                      float(info['duration']), media, work_dir(dest), ytdlp_cmd(media),
-                                                      a.original, a.procs, lambda: fvideo.result()[0])
-                path, vinfo = fvideo.result()
-                info = vinfo or info
+                searched = threading.Event()
+                fguide = ThreadPoolExecutor(1).submit(vocalguide.build, lambda: fkara.result(), title or sid, length, media,
+                                                      work_dir(dest), ytdlp_cmd(media), a.original, a.procs,
+                                                      lambda: fvideo.result()[0], searched)
+
+                def video():
+                    # after the search: a busy line makes its small requests crawl
+                    searched.wait(60)
+                    if not a.no_lyrics:
+                        # the lyric lines are found from the video while it is still coming in
+                        import multiprocessing as mp
+                        avail = mp.Value('d', 0.0)
+                        lines = LinesProcess(os.path.join(dest, 'video.mp4'), length(), 30, a.procs, avail)
+                    try:
+                        got = download(url, dest, media, True, fkara,
+                                       lambda f: setattr(avail, 'value', f * length() - 3) if not a.no_lyrics else None)
+                    finally:
+                        if not a.no_lyrics:
+                            avail.value = 1e9
+                    return got + ((lines,) if not a.no_lyrics else (None,))
+                fvideo = pool.submit(video)
+                info = {'title': title}
+                path, vinfo, early = fvideo.result()
+                info = vinfo or meta.result() or info
             else:
                 say('download', 0, 'Downloading the video')
                 path, info = download(a.source, dest, media)
@@ -1164,8 +1285,7 @@ def main():
                 'source_info': {k: info.get(k) for k in ('title', 'uploader', 'webpage_url') if info.get(k)}}
         vocal_err = None
         y1 = None
-        early = None
-        if fguide and not a.no_lyrics:
+        if fguide and not a.no_lyrics and early is None:
             # found in a process of its own while the guide is still being built (a thread here would share
             # Python's lock with the pitch tracking); the guide is saved as soon as it is ready
             early = LinesProcess(path, dur, 30, a.procs)

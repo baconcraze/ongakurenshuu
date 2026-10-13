@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.12.0">
+<meta name="ongaku-renshuu-version" content="1.13.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -277,6 +277,11 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
 .kgrp input[type=range]{width:90px;accent-color:var(--brass)}
 .klive{font:600 14px var(--num);color:var(--brass-light);min-width:110px}
 .kside select{width:100%;padding:8px 10px;border:1px solid var(--wood-line);border-radius:6px;background:var(--wood);color:var(--wood-ink)}
+.vplist li{cursor:pointer}.vplist li[aria-current="true"]{background:var(--wood);box-shadow:inset 3px 0 var(--brass)}
+.vplist .kn b{display:block;font-weight:600}.vplist .kn span{font-size:12px}
+.vpstage{background:radial-gradient(ellipse at 50% 120%,#3a2018 0%,#1a0f0b 55%,#0c0908 100%)}
+#vpLane{position:absolute;inset:0;width:100%;height:100%}
+.vpctl{display:flex;gap:8px;margin:10px 0}
 .kresult{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.7);padding:16px}
 .kcard{background:var(--paper);color:var(--ink);border-radius:14px;padding:22px 28px;min-width:min(340px,90vw);text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.5)}
 .kgrade{font:700 64px/1 var(--num);color:var(--brass)}
@@ -352,6 +357,38 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
   </div>
 </footer>
 
+<section id="vp" class="kara" hidden aria-label="Voice practice" style="z-index:31">
+  <div class="khead">
+    <div class="ktitle"><div id="vpTitle" style="font-weight:600;font-size:17px">Voice practice</div><div id="vpSub" class="kdim">Exercises for pitch, steadiness and range</div></div>
+    <button class="ibtn kx" id="vpClose" aria-label="Close voice practice">&times;</button>
+  </div>
+  <div class="kbody">
+    <div class="kstage vpstage" id="vpStage">
+      <canvas id="vpLane"></canvas>
+      <div id="vpEmpty" class="kempty">Choose an exercise, then press Start. A note plays first; then sing it and watch your line meet the bar. Green is on pitch, red is too high, blue is too low. Use headphones if your speakers are loud.</div>
+      <div id="vpResult" class="kresult" hidden>
+        <div class="kcard" role="dialog" aria-label="Exercise result">
+          <div class="kgrade" id="vpGrade"></div>
+          <div class="kscore" id="vpScore"></div>
+          <div class="kword" id="vpWord"></div>
+          <dl class="kstats" id="vpStats"></dl>
+          <div class="row-btns center"><button class="btn primary" id="vpAgain">Again</button><button class="btn" id="vpDone">Done</button></div>
+        </div>
+      </div>
+    </div>
+    <aside class="kside">
+      <div class="vpctl"><button class="btn primary" id="vpStart">Start</button><button class="btn" id="vpStop" disabled>Stop</button></div>
+      <p id="vpHelp" class="help"></p>
+      <h3>Exercises</h3>
+      <ul id="vpList" class="klist vplist"></ul>
+      <h3>Your voice</h3>
+      <label class="f">Range<select id="vpVoice"><option value="low">Low voice (A2 to E4)</option><option value="mid">Middle voice (D3 to A4)</option><option value="high">High voice (A3 to E5)</option><option value="custom">My range (from Find my range)</option></select></label>
+      <label class="f">Speed<select id="vpSpeed"><option value="0.8">Slow</option><option value="1">Normal</option><option value="1.25">Fast</option></select></label>
+      <p class="help">How close counts as on pitch follows the karaoke Level (Normal: within 50 cents). Any octave counts except on Pro.</p>
+    </aside>
+  </div>
+</section>
+
 <section id="kara" class="kara" hidden aria-label="Karaoke">
   <div class="khead">
     <div class="ktitle"><div id="kTitle">Karaoke</div><div id="kArtist" class="kdim">Choose a song or import a karaoke video</div></div>
@@ -359,6 +396,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
       <button id="kModePractice" aria-pressed="true" title="Stay on one song and practice it">Practice</button>
       <button id="kModeQueue" aria-pressed="false" title="Sing through the queue like a karaoke machine">Queue</button>
     </div>
+    <button class="tbtn" id="kVoiceBtn" title="Singing exercises: holding a note, matching pitch, scales and more">Voice practice</button>
     <button class="tbtn" id="kSideBtn" aria-pressed="true">Songs and queue</button>
     <button class="ibtn kx" id="kClose" aria-label="Close karaoke">&times;</button>
   </div>
@@ -404,7 +442,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <span id="kTime" class="ktime">0:00 / 0:00</span>
     <input type="range" id="kSeek" min="0" max="1000" value="0" aria-label="Position">
     <button class="tog" id="kMic" aria-pressed="false" title="Sing into your microphone to be scored">Microphone</button>
-    <span class="kgrp"><label class="kdim" for="kLevel">Level</label><select id="kLevel" title="How close to the note your singing has to be"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="pro">Pro</option></select></span>
+    <span class="kgrp"><label class="kdim" for="kLevel">Level</label><select id="kLevel" title="How close to the note your singing has to be"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="pro">Pro</option></select><button class="tog" id="kExtra" aria-pressed="false" title="Also count singing where there is no guide note against your score. Karaoke machines judge only the guide, so this is off unless you want it.">Score extras</button></span>
     <span class="kgrp"><span class="kdim">Key</span><button class="ibtn sm" id="kKeyDn" aria-label="Guide key down">&minus;</button><output id="kKey">0</output><button class="ibtn sm" id="kKeyUp" aria-label="Guide key up">+</button></span>
     <span class="kgrp" id="kPracticeCtl"><label class="kdim" for="kSpeed">Speed</label><select id="kSpeed"><option value="1">100%</option><option value="0.9">90%</option><option value="0.8">80%</option><option value="0.7">70%</option><option value="0.6">60%</option></select>
       <button class="tog" id="kLoopA" title="Start of a section to repeat">A</button><button class="tog" id="kLoopB" title="End of the section to repeat">B</button><button class="tog" id="kLoop" aria-pressed="false" title="Repeat the song, or the A to B section">Repeat</button></span>
@@ -3778,7 +3816,7 @@ async function karaLoad(id, autoplay){
   kara.adj = Object.assign({key:0}, kAdjAll()[id] || {});
   kara.notes = (js.notes || []).map(([t, d, m]) => ({t, e:t + d, m, act:0, hit:0, close:0}));
   kara.contour = Array.isArray(js.contour) ? js.contour : [];
-  kara.pops = []; kara.lastTarget = null; kara.combo = 0;
+  kara.pops = []; kara.lastTarget = null; kara.combo = 0; kara.extra = 0;
   kara.lines = (js.lyrics || []).filter(l => l.text);
   kara.track = []; kara.stats = null; kara.loopA = kara.loopB = null; setLoopUI();
   $('#kTitle').textContent = js.title || id; $('#kArtist').textContent = js.artist || '';
@@ -3811,6 +3849,11 @@ const kLevel = () => LEVELS[settings.karaLevel] || LEVELS.normal;
 settings.karaLevel = LEVELS[settings.karaLevel] ? settings.karaLevel : 'normal';
 $('#kLevel').value = settings.karaLevel; $('#kLevel').title = kLevel().help;
 $('#kLevel').addEventListener('change', e => { settings.karaLevel = e.target.value; e.target.title = kLevel().help; saveSettings(); });
+// Singing where there is no guide note is ignored, like on a karaoke machine, unless Score extras is on.
+// Then it counts as time with no credit; the moments just before and after a note are left out.
+$('#kExtra').setAttribute('aria-pressed', settings.karaExtra ? 'true' : 'false');
+$('#kExtra').addEventListener('click', e => { settings.karaExtra = !settings.karaExtra; e.currentTarget.setAttribute('aria-pressed', settings.karaExtra ? 'true' : 'false'); saveSettings(); });
+const nearNote = (t, pad) => kara.notes.some(n => t > n.t - pad && t < n.e + pad);
 
 // ---- playback controls
 const kPlayIcon = () => { const b = $('#kPlay'); b.innerHTML = kv.paused ? ICON_PLAY : ICON_PAUSE; b.setAttribute('aria-label', kv.paused ? 'Play' : 'Pause'); };
@@ -3841,7 +3884,7 @@ function setLoopUI(){
 $('#kLoopA').addEventListener('click', () => { kara.loopA = kara.loopA != null ? null : kv.currentTime; if(kara.loopB != null && kara.loopA != null && kara.loopB <= kara.loopA) kara.loopB = null; setLoopUI(); });
 $('#kLoopB').addEventListener('click', () => { kara.loopB = kara.loopB != null ? null : kv.currentTime; if(kara.loopA == null) kara.loopA = 0; if(kara.loopB != null && kara.loopB <= kara.loopA) kara.loopB = null; else if(kara.loopB != null){ $('#kLoop').setAttribute('aria-pressed', 'true'); } setLoopUI(); });
 $('#kLoop').addEventListener('click', e => { const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'; e.currentTarget.setAttribute('aria-pressed', on ? 'true' : 'false'); });
-function startOver(){ for(const n of kara.notes){ n.act = n.hit = n.close = 0; n.rated = false; n.voiced = 0; } kara.track = []; kara.stats = null; kara.pops = []; kara.combo = 0; kv.currentTime = 0; }
+function startOver(){ for(const n of kara.notes){ n.act = n.hit = n.close = 0; n.rated = false; n.voiced = 0; } kara.track = []; kara.stats = null; kara.pops = []; kara.combo = 0; kara.extra = 0; kv.currentTime = 0; }
 // the guide sits over the video's own pitch bars when it has them; otherwise it can go at the top or the bottom
 settings.karaLanePos = settings.karaLanePos === 'bottom' ? 'bottom' : 'top';
 const setLanePosUI = () => { const b = $('#kLanePos'); b.textContent = settings.karaLanePos === 'bottom' ? 'Guide at bottom' : 'Guide at top'; b.setAttribute('aria-pressed', settings.karaLanePos === 'bottom' ? 'true' : 'false'); };
@@ -3861,8 +3904,9 @@ function scoreNow(){
     tot += d; got += credit * d; act += n.act; on += n.hit; voiced += n.voiced || 0;
     if(credit >= 0.5){ hitN++; streak++; best = Math.max(best, streak); } else streak = 0;
   }
-  const score = tot ? 100 * got / tot : 0;
-  return {score, acc:act ? 100 * on / act : 0, hitN, total:sung.length, best, voiced:act ? 100 * voiced / act : 0};
+  const extra = settings.karaExtra ? kara.extra || 0 : 0;     // seconds sung with no guide note
+  const score = tot ? 100 * got / (tot + extra) : 0;
+  return {score, acc:act ? 100 * on / act : 0, hitN, total:sung.length, best, voiced:act ? 100 * voiced / act : 0, extra};
 }
 const GRADES = [[95, 'S', 'Superb!'], [90, 'A', 'Excellent'], [80, 'B', 'Great singing'], [70, 'C', 'Good'], [55, 'D', 'Keep practicing'], [0, 'E', 'Warm-up round']];
 function showResult(final){
@@ -3872,7 +3916,7 @@ function showResult(final){
   if(r.total){
     const g = GRADES.find(x => r.score >= x[0]);
     $('#kGrade').textContent = g[1]; $('#kScore').textContent = r.score.toFixed(1); $('#kWord').textContent = g[2];
-    $('#kStats').innerHTML = `<dt>On pitch</dt><dd>${r.acc.toFixed(0)}%</dd><dt>Notes hit</dt><dd>${r.hitN} of ${r.total}</dd><dt>Best streak</dt><dd>${r.best} notes</dd><dt>Singing heard</dt><dd>${r.voiced.toFixed(0)}% of the time</dd>`;
+    $('#kStats').innerHTML = `<dt>On pitch</dt><dd>${r.acc.toFixed(0)}%</dd><dt>Notes hit</dt><dd>${r.hitN} of ${r.total}</dd><dt>Best streak</dt><dd>${r.best} notes</dd><dt>Singing heard</dt><dd>${r.voiced.toFixed(0)}% of the time</dd>${settings.karaExtra ? `<dt>Sung with no guide</dt><dd>${r.extra.toFixed(1)} s</dd>` : ''}`;
     // best scores are kept per level; Normal keeps the plain song id, as before levels existed
     const lvl = settings.karaLevel || 'normal', key = lvl === 'normal' ? kara.id : `${kara.id}@${lvl}`;
     const all = kScores(), prev = all[key] || {};
@@ -3985,6 +4029,11 @@ function karaFrame(){
   const lv = kLevel();
   if(sungMidi != null && target){ dev = lv.octave ? sungMidi - (target.m + key) : ((sungMidi - (target.m + key)) % 12 + 18) % 12 - 6; }
   const live = kara.song && !kv.paused && !kv.seeking;
+  if(live && m && !target && sungMidi != null && settings.karaExtra && !nearNote(tt, 0.4)){
+    const step = kara.lastExtraT != null ? Math.min(0.1, Math.max(0, tt - kara.lastExtraT)) : 0;
+    kara.extra = (kara.extra || 0) + step;
+  }
+  kara.lastExtraT = tt;
   if(live && target && m && tt - target.t >= lv.skip){
     target.act++;
     if(sungMidi != null){ target.voiced = (target.voiced || 0) + 1; if(Math.abs(dev) <= lv.on) target.hit++; else if(Math.abs(dev) <= lv.close) target.close++; }
@@ -4136,13 +4185,248 @@ function drawLyrics(t){
   [...box.children].forEach((el, i) => { el.style.setProperty('--w', (lineWipe(vis[i], t) * 100).toFixed(1) + '%'); });
 }
 document.addEventListener('keydown', e => {
-  if(!kara.open) return;
+  if(!kara.open || vp.open) return;
   if(e.key === 'Escape'){ closeKaraoke(); e.stopImmediatePropagation(); return; }
   if(e.target.closest('input,textarea,select')) return;
   if(e.code === 'Space' && !e.target.closest('button')){ e.preventDefault(); $('#kPlay').click(); }
   e.stopImmediatePropagation();
 }, true);
 window.addEventListener('resize', () => { if(kara.open) fitView(true); });
+
+/* ---------- Voice practice (singing exercises with the microphone) ---------- */
+// Each exercise is a plan of segments on a clock: 'listen' plays a reference tone, 'sing' is judged against the
+// note (or, for the siren, a sliding line). The microphone, YIN pitch, Level windows and trace colours are the
+// karaoke ones.
+const VOICES = {low:[45, 64], mid:[50, 69], high:[57, 76]};
+const VP_EX = [
+  {id:'range', name:'Find my range', help:'Sing your lowest comfortable note and hold it, then your highest. The other exercises then fit your voice.'},
+  {id:'hold', name:'Hold a note', help:'Listen, then hold the note steady for six seconds. Aim for a flat, still line on the bar.'},
+  {id:'match', name:'Match the note', help:'Hear a note, then sing it back. The notes jump around your range.'},
+  {id:'five', name:'Five-note scale', help:'do re mi fa so fa mi re do. Listen once, then sing it; each round starts a semitone higher.'},
+  {id:'scale', name:'Major scale', help:'A full octave up and back down. Listen once, then sing it.'},
+  {id:'arp', name:'Arpeggio', help:'do mi so do so mi do: the notes of a chord one at a time. Listen once, then sing it.'},
+  {id:'interval', name:'Intervals', help:'Hear a note, then sing the interval above it that the bar shows: a third, a fourth, a fifth or an octave.'},
+  {id:'siren', name:'Siren', help:'Slide smoothly up and back down, following the line. It loosens the voice and links your low and high notes.'},
+];
+const INTERVALS = {3:'a minor third', 4:'a major third', 5:'a fourth', 7:'a fifth', 12:'an octave'};
+const vp = {open:false, ex:'hold', plan:null, t0:0, raf:0, trace:[], running:false, stats:null, last:0, pitch:null};
+const vpScores = () => store.get('ongaku.voiceScores', {}) || {};
+function vpRange(){
+  const v = settings.voiceType || 'mid';
+  if(v === 'custom' && settings.voiceLow != null && settings.voiceHigh != null) return [settings.voiceLow, Math.max(settings.voiceLow + 7, settings.voiceHigh)];
+  return VOICES[v] || VOICES.mid;
+}
+const vpRand = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+function vpPlan(id){
+  const [lo, hi] = vpRange(), sp = 1 / (+settings.voiceSpeed || 1), segs = [];
+  let t = 0;
+  const listen = (m, d) => { segs.push({kind:'listen', t, d:d * sp, m}); t += d * sp; };
+  const sing = (m, d, extra) => { segs.push(Object.assign({kind:'sing', t, d:d * sp, m}, extra || {})); t += d * sp; };
+  const rest = d => { t += d * sp; };
+  const phrase = (root, steps, d) => { for(const k of steps) listen(root + k, d); rest(0.6); for(const k of steps) sing(root + k, d); rest(1); };
+  if(id === 'range'){
+    segs.push({kind:'find', t, d:6, m:lo + 2, what:'low', say:'Sing your lowest comfortable note and hold it'}); t += 7;
+    segs.push({kind:'find', t, d:6, m:hi - 2, what:'high', say:'Now your highest comfortable note, and hold it'}); t += 6;
+  } else if(id === 'hold'){
+    for(const m of [lo + 4, lo + 7, lo + 9, Math.round((lo + hi) / 2)]){ listen(m, 1.2); rest(0.3); sing(m, 6, {hold:true}); rest(1.2); }
+  } else if(id === 'match'){
+    let prev = -1;
+    for(let i = 0; i < 8; i++){ let m; do m = vpRand(lo + 2, hi - 2); while(m === prev); prev = m; listen(m, 1); rest(0.4); sing(m, 2); rest(0.8); }
+  } else if(id === 'five'){
+    for(let r = 0; r < 3; r++) phrase(lo + 3 + r, [0, 2, 4, 5, 7, 5, 4, 2, 0], 0.55);
+  } else if(id === 'scale'){
+    phrase(Math.min(lo + 3, hi - 12), [0, 2, 4, 5, 7, 9, 11, 12, 11, 9, 7, 5, 4, 2, 0], 0.5);
+  } else if(id === 'arp'){
+    for(let r = 0; r < 2; r++) phrase(Math.min(lo + 3 + 2 * r, hi - 12), [0, 4, 7, 12, 7, 4, 0], 0.6);
+  } else if(id === 'interval'){
+    const ks = [4, 7, 12, 3, 5, 7];
+    for(const k of ks){ const root = vpRand(lo + 2, Math.max(lo + 2, hi - k - 1)); listen(root, 1); rest(0.3); sing(root + k, 2.2, {say:`Sing ${INTERVALS[k]} above`}); rest(0.9); }
+  } else if(id === 'siren'){
+    const a = lo + 3, b = hi - 3;
+    for(let r = 0; r < 2; r++){ listen(a, 0.8); rest(0.2); sing(a, 4, {glide:[a, b]}); sing(b, 4, {glide:[b, a]}); rest(1); }
+  }
+  return {segs, dur:t};
+}
+const segAt = (plan, t) => plan.segs.find(g => t >= g.t && t < g.t + g.d) || null;
+const segMidi = (g, t) => g.glide ? g.glide[0] + (g.glide[1] - g.glide[0]) * Math.min(1, Math.max(0, (t - g.t) / g.d)) : g.m;
+function vpTone(ac, midi, at, dur){
+  const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+  o.type = 'triangle'; o.frequency.value = 440 * 2 ** ((midi - 69) / 12);
+  f.type = 'lowpass'; f.frequency.value = 2400;
+  g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.22, at + 0.03);
+  g.gain.setValueAtTime(0.22, Math.max(at + 0.04, at + dur - 0.08)); g.gain.linearRampToValueAtTime(0, at + dur);
+  o.connect(f).connect(g).connect(ac.destination); o.start(at); o.stop(at + dur + 0.05);
+}
+function renderVpList(){
+  const ul = $('#vpList'), best = vpScores(); ul.innerHTML = '';
+  for(const e of VP_EX){
+    const li = document.createElement('li'), b = best[e.id];
+    li.setAttribute('aria-current', vp.ex === e.id ? 'true' : 'false'); li.tabIndex = 0;
+    const extra = e.id === 'range' ? (settings.voiceLow != null ? `${midiName(settings.voiceLow)} to ${midiName(settings.voiceHigh)}` : 'Not measured yet') : b != null ? `Best ${b.toFixed(0)}%` : 'Not tried yet';
+    li.innerHTML = `<div class="kn"><b>${esc(e.name)}</b><span class="kdim">${esc(extra)}</span></div>`;
+    const pick = () => { if(vp.running) return; vp.ex = e.id; settings.voiceEx = e.id; saveSettings(); $('#vpHelp').textContent = e.help; renderVpList(); };
+    li.addEventListener('click', pick); li.addEventListener('keydown', ev => { if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); pick(); } });
+    ul.appendChild(li);
+  }
+}
+function openVoice(){
+  if(kara.open){ kv.pause(); }
+  vp.open = true; $('#vp').hidden = false;
+  vp.ex = VP_EX.some(e => e.id === settings.voiceEx) ? settings.voiceEx : 'hold';
+  $('#vpVoice').value = settings.voiceType || 'mid'; $('#vpSpeed').value = String(settings.voiceSpeed || 1);
+  $('#vpHelp').textContent = VP_EX.find(e => e.id === vp.ex).help;
+  renderVpList();
+  cancelAnimationFrame(vp.raf); vp.raf = requestAnimationFrame(vpFrame);
+}
+function closeVoice(){ vpStop(false); vp.open = false; $('#vp').hidden = true; cancelAnimationFrame(vp.raf); if(!kara.open) micOff(); }
+async function vpStart(){
+  if(!await micOn()) return;
+  const ac = kara.mic.ac; if(ac.state === 'suspended') await ac.resume();
+  vp.plan = vpPlan(vp.ex); vp.trace = []; vp.running = true;
+  vp.stats = {act:0, hit:0, cents:[], low:[], high:[]};
+  vp.t0 = ac.currentTime + 1;
+  for(const g of vp.plan.segs) if(g.kind === 'listen') vpTone(ac, g.m, vp.t0 + g.t, g.d * 0.92);
+  $('#vpEmpty').hidden = true; $('#vpResult').hidden = true;
+  $('#vpStart').disabled = true; $('#vpStop').disabled = false;
+}
+function vpStop(show){
+  if(!vp.running) return;
+  vp.running = false; $('#vpStart').disabled = false; $('#vpStop').disabled = true;
+  if(show) vpResult();
+}
+function vpResult(){
+  const st = vp.stats, ex = VP_EX.find(e => e.id === vp.ex), all = vpScores();
+  let stats = '', score = null, word = '';
+  if(vp.ex === 'range'){
+    const q = (a, p) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : null; };
+    const low = q(st.low, 0.3), high = q(st.high, 0.7);
+    if(low != null && high != null && high - low >= 5){
+      settings.voiceLow = Math.round(low); settings.voiceHigh = Math.round(high); settings.voiceType = 'custom'; saveSettings();
+      $('#vpVoice').value = 'custom';
+      $('#vpGrade').textContent = ''; $('#vpScore').textContent = `${midiName(settings.voiceLow)} to ${midiName(settings.voiceHigh)}`;
+      word = `${settings.voiceHigh - settings.voiceLow} semitones. The exercises now use this range.`;
+    } else {
+      $('#vpGrade').textContent = ''; $('#vpScore').textContent = 'No range yet';
+      word = 'Not enough steady singing was heard. Hold each note a little longer, a bit louder.';
+    }
+  } else {
+    score = st.act ? 100 * st.hit / st.act : 0;
+    const g = GRADES.find(x => score >= x[0]);
+    $('#vpGrade').textContent = st.act ? g[1] : ''; $('#vpScore').textContent = st.act ? score.toFixed(0) + '%' : 'No score';
+    word = st.act ? g[2] : 'No singing was heard. Check the microphone, then try again.';
+    stats = `<dt>On pitch</dt><dd>${score.toFixed(0)}% of the time</dd>`;
+    if(st.cents.length > 20){
+      const m = st.cents.reduce((a, b) => a + b, 0) / st.cents.length;
+      const sd = Math.sqrt(st.cents.reduce((a, b) => a + (b - m) ** 2, 0) / st.cents.length);
+      stats += `<dt>Steadiness</dt><dd>±${sd.toFixed(0)} cents</dd><dt>On average</dt><dd>${Math.abs(m).toFixed(0)} cents ${m > 0 ? 'sharp' : 'flat'}</dd>`;
+    }
+    if(st.act){
+      const prev = all[vp.ex];
+      if(prev == null || score > prev){ all[vp.ex] = +score.toFixed(1); store.set('ongaku.voiceScores', all); if(prev != null) word += ' · new personal best'; }
+    }
+  }
+  $('#vpWord').textContent = `${ex.name}: ${word}`; $('#vpStats').innerHTML = stats;
+  $('#vpResult').hidden = false; renderVpList();
+}
+function vpFrame(){
+  vp.raf = requestAnimationFrame(vpFrame);
+  if(!vp.open) return;
+  const m = kara.mic, lv = kLevel();
+  let t = null, sung = null;
+  if(m){
+    const now = performance.now();
+    if(now - vp.last > 30){ vp.last = now; m.an.getFloatTimeDomainData(m.buf); const r = yinPitch(m.buf, m.ac.sampleRate); vp.pitch = r && r.conf > 0.75 ? r.midi : null; }
+    sung = vp.pitch;
+  }
+  if(vp.running && m){
+    t = m.ac.currentTime - vp.t0 - (settings.karaLat || 0) / 1000;   // when the heard sound was sung
+    const g = segAt(vp.plan, t);
+    if(g && sung != null){
+      if(g.kind === 'find'){ (g.what === 'low' ? vp.stats.low : vp.stats.high).push(sung); }
+      else if(g.kind === 'sing' && t - g.t >= Math.max(0.25, lv.skip)){
+        const target = segMidi(g, t);
+        const dev = lv.octave ? sung - target : ((sung - target) % 12 + 18) % 12 - 6;
+        vp.stats.act++; if(Math.abs(dev) <= (g.glide ? Math.max(1, lv.on) : lv.on)) vp.stats.hit++;
+        if(g.hold && Math.abs(dev) < 1) vp.stats.cents.push(dev * 100);
+      }
+    } else if(g && g.kind === 'sing' && t - g.t >= Math.max(0.25, lv.skip)) vp.stats.act++;   // silence while a note is due
+    vp.trace.push({t, m:sung});
+    while(vp.trace.length && vp.trace[0].t < t - 8) vp.trace.shift();
+    if(t > vp.plan.dur + 0.3) vpStop(true);
+  }
+  vpDraw(t, sung);
+}
+function vpDraw(t, sung){
+  const cv = $('#vpLane'), st = $('#vpStage'), dpr = window.devicePixelRatio || 1, W2 = st.clientWidth, H2 = st.clientHeight;
+  if(cv.width !== Math.round(W2 * dpr) || cv.height !== Math.round(H2 * dpr)){ cv.width = Math.round(W2 * dpr); cv.height = Math.round(H2 * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W2, H2);
+  if(!vp.running || t == null) return;
+  const [lo, hi] = vpRange(), vlo = lo - 2, vhi = hi + 2, lv = kLevel();
+  const top = 70, bot = H2 - 40, pps = W2 / 9, px0 = W2 * 0.25;
+  const X = s => px0 + (s - t) * pps, Y = mm => bot - (mm - vlo) / (vhi - vlo) * (bot - top);
+  // semitone grid with the C's named
+  c.font = '11px system-ui'; c.textBaseline = 'middle';
+  for(let k = Math.ceil(vlo); k <= vhi; k++){
+    c.strokeStyle = k % 12 === 0 ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)'; c.beginPath(); c.moveTo(0, Y(k)); c.lineTo(W2, Y(k)); c.stroke();
+    if(k % 12 === 0){ c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillText(midiName(k), 6, Y(k) - 7); }
+  }
+  // the targets
+  for(const g of vp.plan.segs){
+    if(g.t + g.d < t - 3 || g.t > t + 7 || g.kind === 'find') continue;
+    if(g.glide){
+      c.strokeStyle = 'rgba(244,196,90,0.9)'; c.lineWidth = 10; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(X(g.t), Y(g.glide[0])); c.lineTo(X(g.t + g.d), Y(g.glide[1])); c.stroke(); c.lineWidth = 1;
+      continue;
+    }
+    const y = Y(g.m), x0 = X(g.t), x1 = X(g.t + g.d), h = Math.max(8, (bot - top) / (vhi - vlo) * 0.8);
+    if(g.kind === 'listen'){ c.strokeStyle = 'rgba(244,196,90,0.55)'; c.setLineDash([5, 4]); c.strokeRect(x0, y - h / 2, x1 - x0 - 2, h); c.setLineDash([]); }
+    else { c.fillStyle = t >= g.t && t < g.t + g.d ? '#ffd76a' : 'rgba(232,176,60,0.75)'; c.fillRect(x0, y - h / 2, x1 - x0 - 2, h); }
+    if(t < g.t + g.d && g.t < t + 6){ c.fillStyle = 'rgba(255,255,255,0.6)'; c.fillText(midiName(g.m), x0 + 3, y - h / 2 - 8); }
+  }
+  // playhead and the singer's line, folded to the target's octave unless the octave counts
+  c.strokeStyle = 'rgba(255,255,255,0.7)'; c.beginPath(); c.moveTo(px0, top - 20); c.lineTo(px0, bot + 10); c.stroke();
+  const cur = segAt(vp.plan, t), ref = cur && cur.kind !== 'listen' && cur.kind !== 'find' ? segMidi(cur, t) : null;
+  const fold = (mm, base) => { if(base == null || lv.octave) return mm; while(mm - base > 6) mm -= 12; while(base - mm > 6) mm += 12; return mm; };
+  for(const p of vp.trace){
+    if(p.m == null) continue;
+    const g = segAt(vp.plan, p.t), r = g && g.kind === 'sing' ? segMidi(g, p.t) : null;
+    const mm = fold(p.m, r), dev = r == null ? null : mm - r;
+    c.fillStyle = TRACE[r == null ? 'none' : Math.abs(dev) <= (g.glide ? Math.max(1, lv.on) : lv.on) ? 'on' : dev > 0 ? 'high' : 'low'];
+    c.fillRect(X(p.t) - 1.5, Y(mm) - 1.5, 3, 3);
+  }
+  // what to do now
+  c.font = '600 18px system-ui'; c.textBaseline = 'top';
+  const next = vp.plan.segs.find(g => g.t > t);
+  let say = cur ? (cur.kind === 'listen' ? 'Listen' : cur.say || (cur.glide ? 'Slide along the line' : cur.hold ? `Hold ${midiName(cur.m)}` : `Sing ${midiName(cur.m)}`)) : next ? (next.kind === 'listen' ? 'Get ready to listen' : 'Get ready') : '';
+  if(t < 0) say = 'Get ready';
+  c.fillStyle = '#fff'; c.fillText(say, 14, 14);
+  if(cur && cur.kind === 'find') { c.fillStyle = 'rgba(255,255,255,0.75)'; c.font = '15px system-ui'; c.fillText(sung != null ? `Hearing ${midiName(Math.round(sung))}` : 'Listening…', 14, 40); }
+  else if(ref != null && sung != null){
+    const dev = fold(sung, ref) - ref, cents = Math.round(dev * 100);
+    c.font = '15px system-ui'; c.fillStyle = TRACE[Math.abs(dev) <= lv.on ? 'on' : dev > 0 ? 'high' : 'low'];
+    c.fillText(Math.abs(dev) <= lv.on ? `On pitch (${cents >= 0 ? '+' : ''}${cents} cents)` : dev > 0 ? `${cents} cents high` : `${-cents} cents low`, 14, 40);
+  }
+  const left = Math.max(0, vp.plan.dur - t);
+  c.font = '13px system-ui'; c.fillStyle = 'rgba(255,255,255,0.55)'; c.textAlign = 'right'; c.fillText(`${Math.ceil(left)} s left`, W2 - 14, 16); c.textAlign = 'left';
+}
+$('#kVoiceBtn').addEventListener('click', openVoice);
+$('#vpClose').addEventListener('click', closeVoice);
+$('#vpStart').addEventListener('click', vpStart);
+$('#vpStop').addEventListener('click', () => vpStop(true));
+$('#vpAgain').addEventListener('click', () => { $('#vpResult').hidden = true; vpStart(); });
+$('#vpDone').addEventListener('click', () => { $('#vpResult').hidden = true; $('#vpEmpty').hidden = false; });
+$('#vpVoice').addEventListener('change', e => {
+  settings.voiceType = e.target.value; saveSettings();
+  if(e.target.value === 'custom' && settings.voiceLow == null) toast('Do Find my range first; until then the middle range is used.');
+});
+$('#vpSpeed').addEventListener('change', e => { settings.voiceSpeed = +e.target.value; saveSettings(); });
+document.addEventListener('keydown', e => {
+  if(!vp.open) return;
+  if(e.key === 'Escape'){ closeVoice(); e.stopImmediatePropagation(); return; }
+  if(e.target.closest('input,textarea,select')) return;
+  if(e.code === 'Space' && !e.target.closest('button')){ e.preventDefault(); vp.running ? vpStop(true) : vpStart(); }
+  e.stopImmediatePropagation();
+}, true);
 
 /* ---------- Start ---------- */
 // Version in the header. The server reports the installed version; if this page is older, it was cached.
