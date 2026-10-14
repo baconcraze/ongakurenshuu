@@ -67,7 +67,9 @@ BAD = re.compile(r'カラオケ|karaoke|instrumental|off\s*vocal|オフボーカ
                  r'nightcore|slowed|sped|trumpet|トランペット|sax|サックス|flute|フルート|violin|バイオリン|ヴァイオリン|'
                  r'cello|チェロ|ocarina|オカリナ|harmonica|ハーモニカ|erhu|二胡|ukulele|ウクレレ|tutorial|lesson|レッスン|'
                  r'midi|synthesia|reaction|リアクション|踊ってみた|dance|\bamv\b|\bmad\b|総集編|解説|切り抜き|'
-                 r'acapella|a cappella|アカペラ|vocals? only|比較|聴き比べ', re.I)
+                 r'acapella|a cappella|アカペラ|vocals? only|比較|聴き比べ|'
+                 # one song sung in many languages by many singers, over the same backing track
+                 r'multi.?language|\d+\s*languages|all languages|多言語|各国語|\d+ヶ?か?国語', re.I)
 # a different performance of the song, or an edit with extra sound (dialogue, effects) over it
 LIVE = re.compile(r'live|ライブ|concert|コンサート|tour|ツアー|生歌|弾き語り|acoustic|アコースティック|first take|'
                   r'award|アワード|紅白|music station|performance|on stage|ステージ|\bfes\b|フェス|collab|コラボ|[@＠]|体育館|武道館|'
@@ -312,7 +314,7 @@ def refine_onsets(Ek, Eo, t, o, reach=0.15, win_s=8.0, hop_s=1.0, pool_s=15.0):
         cs.append(c)
         rows.append(row)
     if len(cs) < 5:
-        return t, o, False
+        return t, o, 0.0
     cs, M = np.array(cs), np.array(rows)
     pt, po, pw = [], [], []
     with np.errstate(all='ignore'), __import__('warnings').catch_warnings():
@@ -331,16 +333,28 @@ def refine_onsets(Ek, Eo, t, o, reach=0.15, win_s=8.0, hop_s=1.0, pool_s=15.0):
             po.append((b + lo_all) * dt)
             pw.append(float(pooled[b]))
     if len(pt) < 5:
-        return t, o, False
+        return t, o, 0.0
     pt, po, pw = np.array(pt), np.array(po), np.array(pw)
-    return pt, running_median(pt, po, pw, 20.0), True
+    # how much of the original the beats confidently line up on (the third value, 0 when they do not)
+    cover = min(1.0, len(pt) * hop_s / (len(Eo) * dt))
+    return pt, running_median(pt, po, pw, 20.0), cover
+
+
+def matches(c):
+    """Whether a compared recording is the karaoke track's song. The chroma gain alone fails songs that sit on
+    one chord loop throughout (a lot of rap): any two moments look alike, so the gain over chance stays near
+    0.08 even for the right recording. Their beats still line up nearly everywhere, which a different song's
+    did not (right recordings: 0.69 to 0.98 of the song, apart from slow free-tempo ballads, whose gain is
+    high anyway; 58 wrong pairings with a gain of 0.06 to 0.12: at most 0.33; another singer's recording of
+    the same song: under 0.1)."""
+    return c['gain'] >= 0.12 or (c['gain'] >= 0.06 and c['fine'] >= 0.6)
 
 
 def align(kara, orig, kf=None):
     """Line the original up with the karaoke track.
     Returns (original times, karaoke times) for mapping, key shift (karaoke = original + shift),
-    correlation, gain over chance (about 0.2 for the same song, under 0.1 for others), and whether the
-    timing was sharpened to about 10 ms from the beats (False leaves it at about 0.1 s).
+    correlation, gain over chance (about 0.2 for the same song, under 0.1 for others), and the share of the
+    original whose beats line up to about 10 ms (0 leaves the timing at about 0.1 s).
     kf is the karaoke track's (chroma, onset_env), when it is compared with several recordings."""
     Ck, Ek = kf or (chroma(kara), onset_env(kara))
     Co0 = chroma(orig)
@@ -943,7 +957,7 @@ def _build(sep, kara_path, title, duration, work, ytdlp, original, procs, video,
     if best is None:
         ex.shutdown(wait=False, cancel_futures=True)
         raise RuntimeError(err or 'the original song could not be downloaded')
-    if best['gain'] < 0.12:
+    if not matches(best):
         ex.shutdown(wait=False, cancel_futures=True)
         if original:
             raise RuntimeError('the song at the link you gave does not match the karaoke track')
