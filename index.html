@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.13.3">
+<meta name="ongaku-renshuu-version" content="1.14.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -197,8 +197,9 @@ svg.notation .vf-vfscore .vf-stave,svg.notation .vf-vfscore .vf-stave [fill]:not
 svg.notation .vf-vfscore .vf-stave [stroke]:not([stroke="none"]){stroke:var(--line)}
 svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [fill]:not([fill="none"]){fill:var(--hit)}
 svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke="none"]){stroke:var(--hit)}
-.piano{background:var(--wood);border-top:1px solid var(--wood-line);padding:8px 12px 0;overflow-x:auto;overflow-y:hidden;flex:0 0 auto;-webkit-overflow-scrolling:touch}
-.keys{position:relative;height:clamp(70px,11vh,110px);--kw:max(15px,calc((100vw - 26px) / 52));--bw:calc(var(--kw) * .6);width:calc(var(--kw) * 52);margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none}
+.piano{background:var(--wood);border-top:1px solid var(--wood-line);padding:8px 12px 0;overflow-x:auto;overflow-y:hidden;flex:0 0 auto;-webkit-overflow-scrolling:touch;--kw:max(15px,calc((100vw - 26px) / 52));--bw:calc(var(--kw) * .6)}
+.keys{position:relative;height:clamp(70px,11vh,110px);width:calc(var(--kw) * 52);margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none}
+.fall{display:block;width:calc(var(--kw) * 52);height:clamp(90px,24vh,260px);margin:0 auto;background:#120d0b;border-radius:4px 4px 0 0}
 .wk,.bk{position:absolute;top:0;cursor:pointer}
 .wk{width:calc(var(--kw) - 1px);height:100%;background:#f7f4ef;border-radius:0 0 4px 4px;box-shadow:inset 0 -4px 0 #d8d0c4}
 .bk{width:var(--bw);height:62%;background:linear-gradient(#2b221d,#120d0b);border-radius:0 0 3px 3px;z-index:1;box-shadow:0 2px 2px rgba(0,0,0,.35)}
@@ -350,6 +351,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <button class="tog" id="togNotes" aria-pressed="true" title="Mute the tab to play along with the metronome">Notes</button>
     <button class="tog" id="togFollow" aria-pressed="true">Follow</button>
     <button class="tog" id="togView" aria-pressed="false" title="Switch between tab and sheet music (N)">Sheet music</button>
+    <button class="tog" id="togFall" aria-pressed="false" title="Show the notes falling onto the keyboard (F)" hidden>Falling notes</button>
     <button class="tog" id="btnSound" aria-pressed="false" title="Choose the instrument sound">Sound</button>
     <button class="tog" id="togVideo" aria-pressed="false" title="Play along with a YouTube video (V)">Video</button>
     <span class="zoom">
@@ -714,7 +716,7 @@ E|3-------|3-------|--------|------3-|`}
 
 /* ---------- State ---------- */
 let library = store.get('ongaku.library', []);
-let settings = Object.assign({speed:100, metro:false, countIn:false, follow:true, notes:true, zoom:1, reader:'ollama', olUrl:'http://localhost:11434', olModel:'qwen2.5vl:7b', apiKey:'', apiModel:'claude-sonnet-5-5', sndEngine:'sf', sndFont:'', sndInst:'auto', sndVerb:20, videoNotes:false, videoOpen:false, view:'tab'}, store.get('ongaku.settings', {}));
+let settings = Object.assign({speed:100, metro:false, countIn:false, follow:true, notes:true, zoom:1, reader:'ollama', olUrl:'http://localhost:11434', olModel:'qwen2.5vl:7b', apiKey:'', apiModel:'claude-sonnet-5-5', sndEngine:'sf', sndFont:'', sndInst:'auto', sndVerb:20, videoNotes:false, videoOpen:false, view:'tab', falling:false}, store.get('ongaku.settings', {}));
 const saveSettings = () => store.set('ongaku.settings', settings);
 let song = null, tuning = TUNINGS.standard.notes;
 let parsed = {steps:[], measures:[], warnings:[]};
@@ -1160,6 +1162,7 @@ function frame(){
     if(e && e.t <= now) setCursor(e.k, Math.min(1, (now - e.t) / e.d));
     if(endTime !== null && now >= endTime + 0.25){ pause(); pos = 0; setCursor(0, 0, true); }
   }
+  drawFall();
   requestAnimationFrame(frame);
 }
 
@@ -1271,6 +1274,7 @@ function setCursor(k, frac, scroll){
     if(noteGroups[k]) noteGroups[k].forEach(g => g.classList.add('hit'));
     curStep = k; updateBarLabel(); updateKeys(k);
   }
+  playX = k + frac;
   const ri = stepRow[k], svg = rowEls[ri];
   if(!svg) return;
   const nx = stepNext[k] != null ? stepNext[k] : stepX[k] + sw;
@@ -1674,6 +1678,7 @@ document.addEventListener('keydown', e => {
   else if(e.key === 'm' || e.key === 'M') $('#togMetro').click();
   else if(e.key === 'v' || e.key === 'V') $('#togVideo').click();
   else if(e.key === 'n' || e.key === 'N') $('#togView').click();
+  else if((e.key === 'f' || e.key === 'F') && !$('#togFall').hidden) $('#togFall').click();
 });
 let rzTimer = null, lastW = 0;
 new ResizeObserver(() => {
@@ -3323,16 +3328,16 @@ $('#togView').addEventListener('click', () => {
 const PIANO_LO = 21, PIANO_HI = 108;
 const isBlackKey = m => [1, 3, 6, 8, 10].includes(m % 12);
 const pianoEl = $('#piano');
-let keyEls = {}, litKeys = new Map(), sounding = [];
+let keyEls = {}, litKeys = new Map(), sounding = [], fallNotes = [], fallEl = null, fallSig = '', keyGeo = null, playX = 0;
 function buildPiano(){
   let html = '<div class="keys">', wi = 0;
   for(let m = PIANO_LO; m <= PIANO_HI; m++){
     if(isBlackKey(m)) html += `<div class="bk" data-midi="${m}" style="left:calc(${wi} * var(--kw) - var(--bw) / 2)" title="${midiName(m)}"></div>`;
     else { html += `<div class="wk" data-midi="${m}" style="left:calc(${wi} * var(--kw))" title="${midiName(m)}">${m % 12 === 0 ? `<span>C${m / 12 - 1}</span>` : ''}</div>`; wi++; }
   }
-  pianoEl.innerHTML = html + '</div>';
+  pianoEl.innerHTML = '<canvas class="fall" aria-hidden="true"' + (settings.falling ? '' : ' hidden') + '></canvas>' + html + '</div>';
   keyEls = {}; pianoEl.querySelectorAll('[data-midi]').forEach(el => keyEls[+el.dataset.midi] = el);
-  litKeys = new Map();
+  litKeys = new Map(); fallEl = pianoEl.querySelector('.fall'); fallSig = '';
   requestAnimationFrame(() => { const c4 = keyEls[60]; if(c4 && pianoEl.scrollWidth > pianoEl.clientWidth) pianoEl.scrollLeft = c4.offsetLeft - pianoEl.clientWidth / 2; });
 }
 function pianoWanted(){
@@ -3343,22 +3348,28 @@ function updatePianoVisibility(){
   const show = !!song && pianoWanted();
   if(show && !pianoEl.firstChild) buildPiano();
   if(pianoEl.hidden === show){ pianoEl.hidden = !show; requestAnimationFrame(() => { if(rowEls.length) render(); }); }
+  $('#togFall').hidden = !show;
   if(show) updateKeys(curStep >= 0 ? curStep : pos);
 }
 function computeSounding(){
   const steps = parsed.steps, n = steps.length;
   sounding = Array.from({length:n}, () => []);
+  fallNotes = []; fallSig = '';
   if(parsed.kind === 'notes'){
-    steps.forEach((st, k) => st.notes.forEach(nt => { for(let j = k; j < Math.min(n, k + nt.dur); j++) sounding[j].push({midi:nt.midi, lh:nt.staff === 'bass'}); }));
+    steps.forEach((st, k) => st.notes.forEach(nt => {
+      for(let j = k; j < Math.min(n, k + nt.dur); j++) sounding[j].push({midi:nt.midi, lh:nt.staff === 'bass'});
+      fallNotes.push({k, e:Math.min(n, k + nt.dur), midi:nt.midi, lh:nt.staff === 'bass'});
+    }));
     return;
   }
   const cap = (song.cpb || 4) * 4, nextOn = {};
   for(let k = n - 1; k >= 0; k--){
     for(const nt of steps[k].notes){
-      if(!nt.dead){ const end = Math.min(n, nextOn[nt.s] != null ? nextOn[nt.s] : n, k + cap); for(let j = k; j < end; j++) sounding[j].push({midi:noteMidi(nt), lh:false}); }
+      if(!nt.dead){ const end = Math.min(n, nextOn[nt.s] != null ? nextOn[nt.s] : n, k + cap); for(let j = k; j < end; j++) sounding[j].push({midi:noteMidi(nt), lh:false}); fallNotes.push({k, e:end, midi:noteMidi(nt), lh:false}); }
     }
     for(const nt of steps[k].notes) nextOn[nt.s] = k;
   }
+  fallNotes.reverse();
 }
 function updateKeys(k){
   if(pianoEl.hidden || !pianoEl.firstChild) return;
@@ -3374,6 +3385,52 @@ function updateKeys(k){
   }
   litKeys = want;
 }
+// Falling notes: a strip above the keyboard, lined up with the keys, where each note falls onto its key as it is due.
+// It reads the same playhead as the cursor, so the sheet music stays in view and both move together.
+const FALL_SEC = 3;
+function drawFall(){
+  if(!fallEl || fallEl.hidden || pianoEl.hidden || !parsed.steps.length) return;
+  const w = fallEl.clientWidth, h = fallEl.clientHeight; if(!w || !h) return;
+  const lp = loopActive() ? [loopStart(), loopEnd() + 1] : null;
+  const sig = [playX.toFixed(3), w, h, settings.speed, song.bpm, lp].join();
+  if(sig === fallSig) return;
+  fallSig = sig;
+  const dpr = window.devicePixelRatio || 1;
+  if(fallEl.width !== Math.round(w * dpr) || fallEl.height !== Math.round(h * dpr)){ fallEl.width = Math.round(w * dpr); fallEl.height = Math.round(h * dpr); keyGeo = null; }
+  if(!keyGeo){ keyGeo = {}; for(const m in keyEls) keyGeo[m] = [keyEls[m].offsetLeft, keyEls[m].offsetWidth]; }
+  const g = fallEl.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  g.fillStyle = 'rgba(255,255,255,.07)';
+  for(let m = PIANO_LO; m <= PIANO_HI; m++) if(m % 12 === 0 || m % 12 === 5){ const kg = keyGeo[m]; if(kg) g.fillRect(Math.round(kg[0]) - .5, 0, 1, h); }
+  const pps = h / (FALL_SEC / stepDur()), x0 = playX, x1 = x0 + h / pps;
+  // inside a loop the bars after it are not coming, the start of the loop is, so it is drawn again after the end
+  const passes = lp && x0 >= lp[0] && x0 < lp[1] ? [[0, lp[0], lp[1]]] : [[0, 0, Infinity]];
+  if(passes[0][2] !== Infinity) for(let o = lp[1] - lp[0]; lp[0] + o < x1; o += lp[1] - lp[0]) passes.push([o, lp[0], lp[1]]);
+  for(const [off, a, b] of passes){
+    for(const n of fallNotes){
+      if(n.k < a) continue;
+      const k = n.k + off; if(n.k >= b || k >= x1) break;
+      const e = Math.min(n.e, b) + off; if(e <= x0) continue;
+      const kg = keyGeo[n.midi]; if(!kg) continue;
+      const yb = h - (k - x0) * pps, yt = Math.max(-4, h - (e - x0) * pps);
+      const on = k <= x0, black = isBlackKey(n.midi);
+      g.fillStyle = n.lh ? (on ? '#9cc8ea' : black ? '#2f6c9c' : '#5f9ccd') : (on ? '#f3d9a4' : black ? '#9c6a1e' : '#c9923a');
+      const x = kg[0] + 1, ww = Math.max(2, kg[1] - 2), hh = Math.max(2, Math.min(h + 4, yb) - yt - 2);
+      g.beginPath();
+      if(g.roundRect) g.roundRect(x, yt, ww, hh, Math.min(4, ww / 2, hh / 2)); else g.rect(x, yt, ww, hh);
+      g.fill();
+    }
+  }
+}
+function setFalling(on){
+  settings.falling = on; saveSettings();
+  $('#togFall').setAttribute('aria-pressed', on ? 'true' : 'false');
+  if(fallEl){ fallEl.hidden = !on; fallSig = ''; }
+  requestAnimationFrame(() => { if(curRow >= 0) scrollToRow(curRow); });
+}
+$('#togFall').setAttribute('aria-pressed', settings.falling ? 'true' : 'false');
+$('#togFall').addEventListener('click', () => setFalling(!settings.falling));
+new ResizeObserver(() => { keyGeo = null; fallSig = ''; }).observe(pianoEl);
 pianoEl.addEventListener('pointerdown', async e => {
   const key = e.target.closest('[data-midi]'); if(!key) return;
   e.preventDefault();
