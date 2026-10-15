@@ -37,8 +37,16 @@ class Separator:
         self.batch = 8 if self.dev == 'cuda' else 1
         try:
             self.model.to(self.dev)
-        except torch.OutOfMemoryError:
+        except Exception as e:
+            if not self.short_of_gpu(e):
+                raise
             self.to_cpu()
+
+    @staticmethod
+    def short_of_gpu(e):
+        # cuFFT and cuBLAS report a full card as an internal or allocation error, not as OutOfMemoryError
+        return isinstance(e, torch.OutOfMemoryError) or (
+            isinstance(e, RuntimeError) and any(k in str(e) for k in ('CUFFT_INTERNAL_ERROR', 'CUFFT_ALLOC_FAILED', 'CUBLAS_STATUS_ALLOC_FAILED', 'CUDA out of memory', 'CUDNN_STATUS_ALLOC_FAILED')))
 
     def to_cpu(self):
         print('cpu the GPU is out of memory, carrying on with the CPU (slower)', flush=True)
@@ -72,7 +80,9 @@ class Separator:
             group = starts[k:k + self.batch]
             try:
                 y = self.run(torch.stack([xp[:, s:s + seg] for s in group]))
-            except torch.OutOfMemoryError:
+            except Exception as e:
+                if self.dev != 'cuda' or not self.short_of_gpu(e):
+                    raise
                 torch.cuda.empty_cache()
                 if self.batch > 1:
                     self.batch //= 2

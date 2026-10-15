@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ongaku Renshuu launcher: serves Ongaku Renshuu on 127.0.0.1 in the background and opens it.
-# Usage: ongaku [--serve | --stop | --status | --get-soundfont | --karaoke URL [OPTIONS] | --piano URL | --setup-vocals | --update-ytdlp | --help]
+# Usage: ongaku [--serve | --stop | --status | --get-soundfont | --karaoke URL [OPTIONS] | --piano URL | --setup-vocals | --setup-omr | --update-ytdlp | --help]
 set -euo pipefail
 DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PORT="${ONGAKU_PORT:-8765}"   # keep this fixed: your library is saved per address
@@ -76,6 +76,11 @@ for line in sys.stdin:
     python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import vocalguide; vocalguide.install_separator(sys.argv[2])' "$DIR/tools" "$MEDIA" >/dev/null \
       && echo "The vocal separator is ready. Karaoke imports can now build pitch guides from the original song's vocals."
     exit $? ;;
+  --setup-omr)
+    mkdir -p "$MEDIA"
+    echo "Installing Audiveris, which reads printed sheet music from images (about 80 MB), into $MEDIA/audiveris..."
+    python3 "$DIR/tools/omr.py" --setup --media "$MEDIA" >/dev/null && echo "Audiveris is ready. Choose it under Import from image for sheet music."
+    exit $? ;;
   --update-ytdlp)
     mkdir -p "$MEDIA"
     python3 -m venv "$MEDIA/venv" && "$MEDIA/venv/bin/pip" install -q -U yt-dlp && echo "yt-dlp $("$MEDIA/venv/bin/yt-dlp" --version) is ready."
@@ -89,6 +94,7 @@ for line in sys.stdin:
     echo "                   or from the video's own pitch bars if that fails. Add --original LINK to name the"
     echo "                   original song, or --method bars to skip it. The lyric text is read afterwards."
     echo "  --setup-vocals   install the vocal separator now instead of on the first karaoke import"
+    echo "  --setup-omr      install Audiveris for reading sheet music from images (also from the app)"
     echo "  --piano URL      import a falling-notes piano video as a piano song"
     echo "  --update-ytdlp   install the newest yt-dlp for video downloads"
     echo "Downloaded videos are kept in $MEDIA"

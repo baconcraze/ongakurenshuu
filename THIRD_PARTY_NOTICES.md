@@ -11,5 +11,6 @@ Ongaku Renshuu's own code is under the MIT license (see LICENSE). It includes or
 | GeneralUser GS | downloaded by `ongaku --get-soundfont` | GeneralUser GS License v2.0 | Not included in this repository. By S. Christian Collins: https://github.com/mrbumpy409/GeneralUser-GS |
 | PyTorch | installed into the media folder on the first karaoke import (or `ongaku --setup-vocals`) | BSD-3-Clause | Not included in this repository. https://github.com/pytorch/pytorch |
 | Demucs (htdemucs model) | installed with PyTorch; the model weights download on first use | MIT | Not included in this repository. Separates the vocal from the original song for karaoke pitch guides. https://github.com/facebookresearch/demucs |
+| Audiveris 5.11 | downloaded on request from its GitHub release into the media folder (`ongaku --setup-omr` or the app's Install button) | AGPL-3.0 | Not included in this repository and not modified; run as a separate program. Reads printed sheet music from images. https://github.com/Audiveris/audiveris |
 | YouTube IFrame Player API | loaded at runtime from youtube.com | YouTube Terms of Service | Only when the Video panel is used. |
 | Barlow and Barlow Condensed | loaded at runtime from Google Fonts | SIL Open Font License 1.1 | Falls back to system fonts when offline. |

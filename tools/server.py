@@ -8,7 +8,7 @@ the app's own address, so other web pages cannot start downloads.
 
 Usage: server.py [--port 8765] [--root APP_DIR] [--media MEDIA_DIR]
 """
-import argparse, json, os, queue, re, shutil, subprocess, sys, threading, time, urllib.parse, urllib.request
+import argparse, base64, json, os, queue, re, shutil, subprocess, sys, threading, time, urllib.parse, urllib.request
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -16,6 +16,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KINDS = {'karaoke': 'karaoke.py', 'piano': 'pianovideo.py'}
 # follow-up jobs the server queues by itself: (script, extra arguments)
 FOLLOW = {'lyrics': ('karaoke.py', ['--lyrics-text'])}
+# sheet music from images (tools/omr.py, Audiveris): 'omr' reads the pages saved in MEDIA/omr/<n>/, 'omr-setup' installs it
+OMR_KINDS = ('omr', 'omr-setup')
 
 
 class Jobs:
@@ -50,8 +52,15 @@ class Jobs:
             j = self.q.get()
             j['state'] = 'running'
             j['message'] = 'Starting'
-            script, extra = FOLLOW.get(j['kind']) or (KINDS[j['kind']], [])
-            cmd = [sys.executable, os.path.join(HERE, script), j['url'], '--media', self.media] + extra
+            if j['kind'] == 'omr-setup':
+                cmd = [sys.executable, os.path.join(HERE, 'omr.py'), '--setup', '--media', self.media]
+            elif j['kind'] == 'omr':
+                pages = sorted(f for f in os.listdir(j['url']) if f.startswith('page-'))
+                cmd = [sys.executable, os.path.join(HERE, 'omr.py'), *[os.path.join(j['url'], f) for f in pages],
+                       '--out', os.path.join(j['url'], 'score.musicxml'), '--media', self.media]
+            else:
+                script, extra = FOLLOW.get(j['kind']) or (KINDS[j['kind']], [])
+                cmd = [sys.executable, os.path.join(HERE, script), j['url'], '--media', self.media] + extra
             for k, v in (j.get('opts') or {}).items():
                 cmd += [f'--{k}', v]
             try:
@@ -62,6 +71,8 @@ class Jobs:
                     try:
                         m = json.loads(line)
                     except ValueError:
+                        if j['kind'] in OMR_KINDS and line.strip() and not line.startswith(('Traceback', ' ')):
+                            j['message'] = line.strip()[:300]   # omr.py stops with a plain sentence
                         continue
                     j['stage'] = m.get('stage') or j['stage']
                     if m.get('progress') is not None:
@@ -72,7 +83,12 @@ class Jobs:
                         j['song'] = song_id(j['url'])   # playable already; lyrics may still be coming
                 p.wait()
                 j['state'] = 'done' if p.returncode == 0 else 'failed'
-                if p.returncode == 0:
+                if p.returncode != 0 and j['kind'] in OMR_KINDS and j['message'] in ('Starting', ''):
+                    j['message'] = 'Audiveris could not read this.'
+                if p.returncode == 0 and j['kind'] in OMR_KINDS:
+                    if j['kind'] == 'omr':
+                        j['song'] = 'media/omr/' + os.path.basename(j['url']) + '/score.musicxml'
+                elif p.returncode == 0:
                     j['song'] = song_id(j['url'])
                     # the lyric text is read last, behind any other songs waiting to be imported
                     if j['kind'] == 'karaoke' and 'no-lyrics' not in (j.get('opts') or {}) and ollama_up():
@@ -177,6 +193,7 @@ def make_handler(root, media, jobs, port):
                     self.send_json({'ok': True, 'media': media, 'ollama': ollama_up(),
                                     'ffmpeg': bool(shutil.which('ffmpeg')), 'kinds': list(KINDS),
                                     'separator': os.path.exists(os.path.join(media, 'vocal-venv', 'bin', 'python')),
+                                    'omr': os.access(os.path.join(media, 'audiveris', 'opt', 'audiveris', 'bin', 'Audiveris'), os.X_OK),
                                     'version': app_version(root)})
                 elif path == '/api/library':
                     self.send_json({k: read_songs(media, k) for k in KINDS})
@@ -199,9 +216,9 @@ def make_handler(root, media, jobs, port):
                 return
             super().do_HEAD()
 
-        def read_body(self):
+        def read_body(self, limit=65536):
             n = int(self.headers.get('Content-Length') or 0)
-            if n > 65536:
+            if n > limit:
                 raise ValueError('too large')
             return json.loads(self.rfile.read(n) or b'{}')
 
@@ -209,6 +226,34 @@ def make_handler(root, media, jobs, port):
             path = urllib.parse.urlparse(self.path).path
             if not self.api_ok(write=True):
                 self.send_error(HTTPStatus.FORBIDDEN)
+                return
+            if path == '/api/omr-setup':
+                self.send_json(jobs.add('omr-setup', 'audiveris'))
+                return
+            if path == '/api/omr':
+                # pages of sheet music as base64 PNG or JPEG; read by Audiveris in the background
+                try:
+                    body = self.read_body(80 << 20)
+                    imgs = [base64.b64decode(x, validate=True) for x in body.get('images') or []]
+                except (ValueError, TypeError):
+                    self.send_json({'error': 'Bad request'}, 400)
+                    return
+                if not imgs or len(imgs) > 40 or not all(i[:8] == b'\x89PNG\r\n\x1a\n' or i[:3] == b'\xff\xd8\xff' for i in imgs):
+                    self.send_json({'error': 'Send one or more PNG or JPEG pages'}, 400)
+                    return
+                root_dir = os.path.join(media, 'omr')
+                os.makedirs(root_dir, exist_ok=True)
+                # keep the last few readings only
+                old = sorted((d for d in os.listdir(root_dir) if d.isdigit()), key=int)
+                for d in old[:-5]:
+                    shutil.rmtree(os.path.join(root_dir, d), ignore_errors=True)
+                n = str(int(old[-1]) + 1 if old else 1)
+                d = os.path.join(root_dir, n)
+                os.makedirs(d)
+                for i, b in enumerate(imgs):
+                    with open(os.path.join(d, f'page-{i + 1:03d}' + ('.png' if b[:1] == b'\x89' else '.jpg')), 'wb') as f:
+                        f.write(b)
+                self.send_json(jobs.add('omr', d))
                 return
             if path == '/api/import':
                 try:
