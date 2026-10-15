@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.14.0">
+<meta name="ongaku-renshuu-version" content="1.15.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -482,11 +482,16 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
       <label class="btn" tabindex="0">Import file<input type="file" id="fileIn" accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7,.gp8,.musicxml,.mxl,.xml,.mid,.midi,.abc,.txt,.tab,text/plain" class="sr"></label>
     </div>
     <div class="vimp">
+      <label class="f">Export this song<select id="expFmt"></select></label>
+      <div class="row-btns"><button class="btn" id="expGo">Download</button></div>
+      <p id="expStatus" class="help" role="status"></p>
+    </div>
+    <div class="vimp">
       <label class="f">Piano song from a falling-notes video<input id="pvUrl" type="url" placeholder="YouTube link to a piano video with falling notes" autocomplete="off"></label>
       <div class="row-btns"><button class="btn" id="pvGo">Make a piano song</button></div>
       <p id="pvStatus" class="help" role="status"></p>
     </div>
-    <p class="note">Import reads Guitar Pro (.gp, .gpx, .gp5, .gp4, .gp3), MusicXML (.musicxml, .mxl), MIDI, ABC and plain-text ASCII tab. Songs you save are kept in this browser only. Ongaku Renshuu is free software under the MIT license: copy it, change it, share it.</p>
+    <p class="note">Import reads Guitar Pro (.gp, .gpx, .gp5, .gp4, .gp3), MusicXML (.musicxml, .mxl), MIDI, ABC and plain-text ASCII tab. Songs you save are kept in this browser only. Export saves the song you have open as MusicXML (for MuseScore, Finale, Sibelius and Dorico), MIDI, Guitar Pro, ABC or text tab. Ongaku Renshuu is free software under the MIT license: copy it, change it, share it.</p>
   </section>
   <section id="paneImg" class="pane" role="tabpanel" hidden>
     <p class="help">Choose a screenshot, scan, or photo of tab or sheet music. Ongaku Renshuu finds each staff, cuts it into readable pieces, and has the model you choose below transcribe them. Fret numbers and pitches usually come through well; give rhythms a quick check afterwards.</p>
@@ -1367,7 +1372,7 @@ function reparse(keepPos){
     song.cpb = parsed.cpb || 4;
   }
   else { song.kind = 'tab'; tuning = tuningNotes(song.tuning); parsed = parseTab(song.tab, tuning.length); parsed.kind = 'tab'; }
-  computeSounding(); updatePianoVisibility();
+  computeSounding(); updatePianoVisibility(); fillExport();
   if(!keepPos){ pos = 0; loopA = loopB = null; loopOn = false; loopPicking = false; }
   else { pos = Math.min(pos, Math.max(0, parsed.steps.length - 1)); if(loopB !== null && !parsed.measures[loopB]){ loopA = loopB = null; loopOn = false; } }
   $('#warn').textContent = parsed.warnings.join(' ');
@@ -1647,7 +1652,13 @@ $('#fileIn').addEventListener('change', e => {
       return;
     }
     const guess = /^\s*[GDAE]\|/m.test(text) && !/^\s*[eB]\|/m.test(text) ? 'bass4' : 'standard';
-    loadSong({id:null, unsaved:true, title:f.name.replace(/\.[^.]+$/, ''), artist:'', bpm:100, cpb:4, tuning:guess, tab:text});
+    // a text tab exported from here starts with the title, artist, tuning and tempo
+    const tm = text.match(/^Tempo:\s*(\d+(?:\.\d+)?)\s*BPM(?:,\s*(\d+)\s*columns per beat)?/mi);
+    const head = text.split(/\r?\n\s*\r?\n/)[0].split(/\r?\n/), exported = !!tm && /^Tuning/mi.test(text) && head.length >= 3;
+    const tun = (text.match(/^Tuning \(low to high\):\s*(.+)$/mi) || [])[1];
+    let tuning = guess;
+    if(tun){ const ns = tun.trim().split(/\s+/).map(t => parsePitch(t)); if(ns.length && ns.every(Boolean)){ const arr = ns.map(n => n.midi).reverse(); tuning = Object.keys(TUNINGS).find(k => sameTuning(TUNINGS[k].notes, arr)) || arr; } }
+    loadSong({id:null, unsaved:true, title:exported ? head[0] : f.name.replace(/\.[^.]+$/, ''), artist:exported && !/^Tuning/i.test(head[1]) ? head[1] : '', bpm:tm ? +tm[1] : 100, cpb:tm && +tm[2] || 4, tuning, tab:text});
     openDrawer('edit');
     toast(parsed.steps.length ? `Imported ${parsed.measures.length} bars. Save to keep it.` : `No tab lines found in ${lines} lines of text`);
   };
@@ -1942,23 +1953,40 @@ function readMidi(bytes){
     if(prog >= 24 && prog <= 39){
       const bass = prog >= 32, low = Math.min(...ns.map(n => n.midi));
       const tuning = (bass ? (low < 28 ? TUNINGS.bass5 : TUNINGS.bass4) : (low < 40 ? TUNINGS.seven || TUNINGS.standard : TUNINGS.standard)).notes;
-      const events = [], used = new Map();
+      const events = [];
       let hand = 3;
-      ns.sort((a, b) => a.start - b.start || b.midi - a.midi);
-      for(const n of ns){
-        const taken = used.get(n.start) || new Set();
+      ns.sort((a, b) => a.start - b.start || a.midi - b.midi);
+      // each chord is placed as a whole: the most notes on separate strings, then the least hand movement
+      for(let i = 0; i < ns.length;){
+        let j = i; while(j < ns.length && ns[j].start === ns[i].start) j++;
+        const chord = ns.slice(i, j).filter((n, x, a) => !x || n.midi !== a[x - 1].midi).slice(0, tuning.length);
         let best = null;
-        tuning.forEach((open, s) => {
-          const fret = n.midi - open;
-          if(fret < 0 || fret > 24 || taken.has(s)) return;
-          const cost = Math.abs(fret - hand) + (fret > 12 ? 2 : 0) - (fret === 0 ? 1 : 0);
-          if(!best || cost < best.cost) best = {s, fret, cost};
+        const pick = [], taken = new Set();
+        const walk = (x, cost) => {
+          if(x === chord.length){
+            const got = pick.filter(Boolean).length;
+            if(!best || got > best.got || got === best.got && cost < best.cost) best = {got, cost, pick:pick.slice()};
+            return;
+          }
+          if(best && best.got === chord.length && cost >= best.cost) return;
+          tuning.forEach((open, s) => {
+            const fret = chord[x].midi - open;
+            if(fret < 0 || fret > 24 || taken.has(s)) return;
+            taken.add(s); pick[x] = {s, fret};
+            walk(x + 1, cost + Math.abs(fret - hand) + (fret > 12 ? 2 : 0) - (fret === 0 ? 1 : 0));
+            taken.delete(s);
+          });
+          pick[x] = null; walk(x + 1, cost + 50);
+        };
+        walk(0, 0);
+        best.pick.forEach((pk, x) => {
+          if(!pk) return;
+          const n = chord[x], bi = barAt(n.start);
+          events.push({bar:bi, tick:n.start - barStart[bi], s:pk.s, fret:pk.fret, dead:false, tech:null});
         });
-        if(!best) continue;
-        taken.add(best.s); used.set(n.start, taken);
-        if(best.fret) hand = best.fret;
-        const bi = barAt(n.start);
-        events.push({bar:bi, tick:n.start - barStart[bi], s:best.s, fret:best.fret, dead:false, tech:null});
+        const fr = best.pick.filter(pk => pk && pk.fret).map(pk => pk.fret);
+        if(fr.length) hand = Math.round(fr.reduce((a, b) => a + b, 0) / fr.length);
+        i = j;
       }
       if(events.length) staves.push({order:k, name, tuning:tuning.slice(), events});
       continue;
@@ -4521,6 +4549,245 @@ document.addEventListener('keydown', e => {
   if(e.code === 'Space' && !e.target.closest('button')){ e.preventDefault(); vp.running ? vpStop(true) : vpStart(); }
   e.stopImmediatePropagation();
 }, true);
+
+/* ---------- Export ----------
+   The open song is saved as a standard file: MusicXML (notation programs), MIDI, Guitar Pro (MusicXML read back
+   through alphaTab and written by its exporter), or the song's own text (ABC for piano parts, ASCII tab).
+   Every track is turned into bars of timed events in 96 units per quarter note, the units the importers use. */
+const EXPORTS = {
+  musicxml:{name:'MusicXML (.musicxml), for MuseScore, Finale, Sibelius, Dorico', ext:'musicxml', type:'application/vnd.recordare.musicxml+xml'},
+  midi:{name:'MIDI (.mid)', ext:'mid', type:'audio/midi'},
+  gp:{name:'Guitar Pro (.gp)', ext:'gp', type:'application/octet-stream'},
+  abc:{name:'ABC notation (.abc), this track', ext:'abc', type:'text/vnd.abc'},
+  txt:{name:'Text tab (.txt), this track', ext:'txt', type:'text/plain'}
+};
+function fillExport(){
+  const sel = $('#expFmt'), was = sel.value || settings.expFmt || 'musicxml';
+  const keys = ['musicxml', 'midi', 'gp', song && song.kind === 'notes' ? 'abc' : 'txt'];
+  sel.innerHTML = keys.map(k => `<option value="${k}">${esc(EXPORTS[k].name)}</option>`).join('');
+  sel.value = keys.includes(was) ? was : 'musicxml';
+}
+function exportTracks(){
+  syncTrack();
+  const list = Array.isArray(song.tracks) && song.tracks.length ? song.tracks : [{name:song.title, kind:song.kind, fmt:song.fmt, cpb:song.cpb, tuning:song.tuning, tab:song.tab}];
+  return list.map((tr, i) => {
+    let p, tn = null, keyFifths = 0;
+    if(tr.kind === 'notes'){
+      p = tr.fmt === 'abc' ? parseNotes(abcToNoteText(tr.tab).text) : parseNotes(tr.tab);
+      const km = tr.fmt === 'abc' && String(tr.tab).match(/^K:\s*([A-G][#b]?)\s*(m(?:in)?\b)?/m);
+      if(km){ const MAJ = {C:0, G:1, D:2, A:3, E:4, B:5, 'F#':6, 'C#':7, F:-1, Bb:-2, Eb:-3, Ab:-4, Db:-5, Gb:-6, Cb:-7}; if(km[1] in MAJ) keyFifths = Math.max(-7, Math.min(7, MAJ[km[1]] - (km[2] ? 3 : 0))); }
+    } else { tn = tuningNotes(tr.tuning); p = parseTab(tr.tab, tn.length); p.kind = 'tab'; p.cpb = +tr.cpb || song.cpb || 4; }
+    const cpb = p.cpb || 4, U = 96 / cpb, uOf = x => Math.round(x * U);
+    const barU = p.measures.map(m => uOf(m.len));
+    let voices, spans = [];
+    if(p.kind === 'notes'){
+      voices = p.voices.map(vo => ({label:vo.label, staff:vo.staff, bars:vo.bars.map(evs => (evs || []).filter(e => !e.rest).map(e => ({s:uOf(e.start), d:uOf(e.dur), notes:e.midis.map((m, j) => ({midi:m, tie:e.ties[j]}))})))}));
+      p.steps.forEach((st, k) => st.notes.forEach(nt => spans.push({k, e:k + nt.dur, midi:nt.midi})));
+    } else {
+      // a tab note lasts until the next note in the bar; for MIDI it rings until its string is played again
+      const bars = p.measures.map(m => {
+        const evs = [];
+        for(let k = m.start; k < m.start + m.len; k++){
+          const st = p.steps[k]; if(!st.notes.length) continue;
+          evs.push({s:uOf(k - m.start), notes:st.notes.map(nt => ({midi:tn[nt.s] + nt.fret, string:nt.s + 1, fret:nt.fret, dead:!!nt.dead}))});
+        }
+        evs.forEach((e, j) => e.d = (j + 1 < evs.length ? evs[j + 1].s : uOf(m.len)) - e.s);
+        return evs;
+      });
+      voices = [{label:'T', staff:'tab', bars}];
+      const nextOn = {}, n = p.steps.length;
+      for(let k = n - 1; k >= 0; k--){
+        for(const nt of p.steps[k].notes) if(!nt.dead) spans.push({k, e:Math.min(n, nextOn[nt.s] != null ? nextOn[nt.s] : n, k + cpb * 4), midi:tn[nt.s] + nt.fret});
+        for(const nt of p.steps[k].notes) nextOn[nt.s] = k;
+      }
+    }
+    const prog = tr.kind === 'notes' ? 0 : tn.length === 4 && tn.includes(69) && tn.includes(67) ? 24 : Math.max(...tn) < 50 ? 33 : 25;
+    return {name:tr.name || (tr.kind === 'notes' ? 'Piano' : Math.max(...tn) < 50 ? 'Bass' : 'Guitar'), kind:p.kind, tuning:tn, keyFifths, barU, voices, spans, U, prog};
+  });
+}
+const xmlEsc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&apos;'}[c]));
+const XML_TYPE = {'1':'whole', '2':'half', '4':'quarter', '8':'eighth', '16':'16th', '32':'32nd', '64':'64th'};
+const timeSig = u => u % 96 === 0 ? [u / 96, 4] : u % 48 === 0 ? [u / 48, 8] : u % 24 === 0 ? [u / 24, 16] : [Math.max(1, Math.round(u / 12)), 32];
+function pitchXml(midi, flats){
+  const names = flats ? ['C', 'D-', 'D', 'E-', 'E', 'F', 'G-', 'G', 'A-', 'A', 'B-', 'B'] : ['C', 'C+', 'D', 'D+', 'E', 'F', 'F+', 'G', 'G+', 'A', 'A+', 'B'];
+  const nm = names[midi % 12];
+  return `<pitch><step>${nm[0]}</step>${nm[1] ? `<alter>${nm[1] === '+' ? 1 : -1}</alter>` : ''}<octave>${Math.floor(midi / 12) - 1}</octave></pitch>`;
+}
+function toMusicXml(tracks){
+  const out = [`<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="4.0">
+<work><work-title>${xmlEsc(song.title || 'Untitled')}</work-title></work>
+<identification>${song.artist ? `<creator type="composer">${xmlEsc(song.artist)}</creator>` : ''}<encoding><software>Ongaku Renshuu ${xmlEsc(APP_VERSION)}</software><encoding-date>${new Date().toISOString().slice(0, 10)}</encoding-date></encoding></identification>
+<part-list>`];
+  let ch = 0;
+  tracks.forEach((t, i) => {
+    t.channel = ch === 9 ? ++ch : ch; ch++;
+    out.push(`<score-part id="P${i + 1}"><part-name>${xmlEsc(t.name)}</part-name><midi-instrument id="P${i + 1}-I1"><midi-channel>${t.channel + 1}</midi-channel><midi-program>${t.prog + 1}</midi-program></midi-instrument></score-part>`);
+  });
+  out.push('</part-list>');
+  const nBars = Math.max(...tracks.map(t => t.barU.length));
+  tracks.forEach((t, pi) => {
+    out.push(`<part id="P${pi + 1}">`);
+    const flats = t.keyFifths < 0, tab = t.kind === 'tab';
+    const staffKinds = tab ? ['tab'] : [...new Set(t.voices.map(v => v.staff))].sort().reverse();
+    const staffNo = st => Math.max(1, staffKinds.indexOf(st) + 1);
+    const vNo = {}; t.voices.forEach((v, i) => vNo[v.label] = i + 1);
+    let lastBar = null;
+    const tieOpen = t.voices.map(() => new Set());
+    for(let b = 0; b < nBars; b++){
+      const bu = t.barU[b] || t.barU[t.barU.length - 1] || 384;
+      out.push(`<measure number="${b + 1}">`);
+      if(b === 0 || bu !== lastBar){
+        const [nu, de] = timeSig(bu);
+        let attr = `<attributes>`;
+        if(b === 0){
+          attr += `<divisions>${NOTE_U}</divisions><key><fifths>${t.keyFifths}</fifths></key>`;
+        }
+        attr += `<time><beats>${nu}</beats><beat-type>${de}</beat-type></time>`;
+        if(b === 0){
+          if(staffKinds.length > 1) attr += `<staves>${staffKinds.length}</staves>`;
+          staffKinds.forEach((st, si) => {
+            const n = staffKinds.length > 1 ? ` number="${si + 1}"` : '';
+            if(st === 'tab') attr += `<clef${n}><sign>TAB</sign><line>5</line></clef>`;
+            else attr += st === 'bass' ? `<clef${n}><sign>F</sign><line>4</line></clef>` : `<clef${n}><sign>G</sign><line>2</line></clef>`;
+          });
+          if(tab){
+            attr += `<staff-details><staff-lines>${t.tuning.length}</staff-lines>`;
+            t.tuning.slice().reverse().forEach((m, li) => {
+              const pm = pitchXml(m, false).match(/<step>(.)<\/step>(?:<alter>(-?\d)<\/alter>)?<octave>(-?\d+)/);
+              attr += `<staff-tuning line="${li + 1}"><tuning-step>${pm[1]}</tuning-step>${pm[2] ? `<tuning-alter>${pm[2]}</tuning-alter>` : ''}<tuning-octave>${pm[3]}</tuning-octave></staff-tuning>`;
+            });
+            attr += `</staff-details>`;
+          }
+        }
+        out.push(attr + `</attributes>`);
+        lastBar = bu;
+      }
+      if(b === 0 && pi === 0) out.push(`<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${Math.round(song.bpm)}</per-minute></metronome></direction-type><sound tempo="${Math.round(song.bpm)}"/></direction>`);
+      t.voices.forEach((v, vi) => {
+        const sn = staffNo(v.staff), vn = vNo[v.label];
+        const staffTag = staffKinds.length > 1 ? `<staff>${sn}</staff>` : '';
+        let pos = 0;
+        const rest = u => { for(const [pu, code] of splitUnits(u)) { out.push(`<note><rest/><duration>${pu}</duration><voice>${vn}</voice>${noteType(code)}${staffTag}</note>`); pos += pu; } };
+        const evs = (v.bars[b] || []).slice().sort((a, c) => a.s - c.s);
+        if(!evs.length){
+          out.push(`<note><rest measure="yes"/><duration>${bu}</duration><voice>${vn}</voice>${staffTag}</note>`); pos = bu;
+        } else {
+          for(const e of evs){
+            let s = e.s, d = e.d;
+            if(s > pos) rest(s - pos);
+            if(s < pos){ d -= pos - s; s = pos; }
+            d = Math.min(d, bu - pos);
+            const parts = splitUnits(d);
+            if(!parts.length) continue;
+            const open = tieOpen[vi], nextOpen = new Set();
+            parts.forEach(([pu, code], pj) => {
+              const last = pj === parts.length - 1;
+              e.notes.forEach((nt, ni) => {
+                const stop = pj > 0 || open.has(nt.midi), start = !last || nt.tie;
+                if(last && nt.tie) nextOpen.add(nt.midi);
+                const ties = (stop ? '<tie type="stop"/>' : '') + (start ? '<tie type="start"/>' : '');
+                const tied = (stop ? '<tied type="stop"/>' : '') + (start ? '<tied type="start"/>' : '');
+                const tech = nt.string ? `<technical><string>${nt.string}</string><fret>${nt.fret}</fret></technical>` : '';
+                out.push(`<note>${ni ? '<chord/>' : ''}${pitchXml(nt.midi, flats)}<duration>${pu}</duration>${ties}<voice>${vn}</voice>${noteType(code)}${nt.dead ? '<notehead>x</notehead>' : ''}${staffTag}${tied || tech ? `<notations>${tied}${tech}</notations>` : ''}</note>`);
+              });
+              pos += pu;
+            });
+            tieOpen[vi] = nextOpen;
+          }
+          if(bu - pos >= 6) rest(bu - pos);
+        }
+        if(vi < t.voices.length - 1 && pos) out.push(`<backup><duration>${pos}</duration></backup>`);
+      });
+      out.push('</measure>');
+    }
+    out.push('</part>');
+  });
+  out.push('</score-partwise>\n');
+  return out.join('\n');
+}
+function noteType(code){
+  const m = code.match(/^(\d+)(\.?)(t?)$/);
+  return `<type>${XML_TYPE[m[1]]}</type>${m[2] ? '<dot/>' : ''}${m[3] ? '<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>' : ''}`;
+}
+// Standard MIDI file, format 1: a tempo and time-signature track, then one track per part.
+function toMidi(tracks){
+  const PPQ = 480, bytes = [];
+  const vlq = n => { const a = [n & 127]; while(n >>= 7) a.unshift((n & 127) | 128); return a; };
+  const str = t => [...new TextEncoder().encode(t)];
+  const chunk = (id, data) => [...str(id), (data.length >>> 24) & 255, (data.length >>> 16) & 255, (data.length >>> 8) & 255, data.length & 255, ...data];
+  const trackData = evs => {
+    evs.sort((a, b) => a.t - b.t || a.o - b.o);
+    const d = []; let last = 0;
+    for(const e of evs){ d.push(...vlq(e.t - last), ...e.b); last = e.t; }
+    d.push(0, 0xff, 0x2f, 0);
+    return d;
+  };
+  const meta = (type, data) => [0xff, type, ...vlq(data.length), ...data];
+  const first = tracks[0], cond = [{t:0, o:0, b:meta(3, str(song.title || 'Untitled'))}];
+  const mpq = Math.round(60000000 / song.bpm);
+  cond.push({t:0, o:1, b:meta(0x51, [(mpq >> 16) & 255, (mpq >> 8) & 255, mpq & 255])});
+  let t = 0, prev = null;
+  first.barU.forEach(bu => {
+    if(bu !== prev){ const [nu, de] = timeSig(bu); cond.push({t, o:2, b:meta(0x58, [nu, Math.log2(de), 24, 8])}); prev = bu; }
+    t += Math.round(bu * PPQ / NOTE_U);
+  });
+  const chunks = [chunk('MTrk', trackData(cond))];
+  let ch = 0;
+  for(const tr of tracks){
+    const c = ch === 9 ? ++ch : ch; ch++;
+    const tick = k => Math.round(k * tr.U * PPQ / NOTE_U);
+    const evs = [{t:0, o:0, b:meta(3, str(tr.name))}, {t:0, o:1, b:[0xc0 | (c & 15), tr.prog]}];
+    // one pitch on one channel is one key: a note ends where the same pitch starts again (two strings in unison)
+    const sps = tr.spans.slice().sort((x, y) => x.k - y.k), nextSame = new Map();
+    for(let i = sps.length - 1; i >= 0; i--){ const sp = sps[i]; sp.cut = nextSame.has(sp.midi) ? nextSame.get(sp.midi) : Infinity; nextSame.set(sp.midi, sp.k); }
+    for(const sp of sps){
+      if(sp.cut === sp.k) continue;
+      const a = tick(sp.k), z = Math.max(a + 1, tick(Math.min(sp.e, sp.cut)) - 1);
+      evs.push({t:a, o:3, b:[0x90 | (c & 15), sp.midi & 127, 84]}, {t:z, o:2, b:[0x80 | (c & 15), sp.midi & 127, 0]});
+    }
+    chunks.push(chunk('MTrk', trackData(evs)));
+  }
+  bytes.push(...chunk('MThd', [0, 1, 0, chunks.length, PPQ >> 8, PPQ & 255]));
+  for(const c of chunks) bytes.push(...c);
+  return new Uint8Array(bytes);
+}
+async function toGuitarPro(tracks){
+  const at = await loadAlphaTab();
+  const xml = new TextEncoder().encode(toMusicXml(tracks));
+  const score = at.importer.ScoreLoader.loadScoreFromBytes(xml);
+  score.title = song.title || ''; score.artist = song.artist || '';
+  return new at.exporter.Gp7Exporter().export(score, new at.Settings());
+}
+function exportText(fmt){
+  syncTrack();
+  if(fmt === 'abc') return song.fmt === 'abc' ? song.tab : noteTextToAbc(song.tab, {title:song.title, artist:song.artist, bpm:song.bpm});
+  const tn = tuningNotes(song.tuning);
+  const head = [song.title || 'Untitled', song.artist, `Tuning (low to high): ${tn.slice().reverse().map(midiName).join(' ')}`, `Tempo: ${Math.round(song.bpm)} BPM, ${song.cpb || 4} columns per beat`].filter(Boolean);
+  return head.join('\n') + '\n\n' + String(song.tab || '').trim() + '\n';
+}
+function saveFile(data, name, type){
+  const url = URL.createObjectURL(new Blob([data], {type}));
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+$('#expGo').addEventListener('click', async () => {
+  const fmt = $('#expFmt').value, ex = EXPORTS[fmt], st = $('#expStatus');
+  if(!song || !parsed.steps.length){ st.textContent = 'This song has no notes to export yet.'; return; }
+  settings.expFmt = fmt; saveSettings();
+  const base = (song.title || 'Untitled').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Untitled';
+  const btn = $('#expGo'); btn.disabled = true; st.textContent = '';
+  try{
+    const data = fmt === 'abc' || fmt === 'txt' ? exportText(fmt) : fmt === 'midi' ? toMidi(exportTracks()) : fmt === 'gp' ? await toGuitarPro(exportTracks()) : toMusicXml(exportTracks());
+    saveFile(data, `${base}.${ex.ext}`, ex.type);
+    st.textContent = `Saved ${base}.${ex.ext} to your downloads.`;
+  } catch(err){
+    console.error(err);
+    st.textContent = fmt === 'gp' ? 'The Guitar Pro file could not be made. MusicXML opens in Guitar Pro too.' : 'The file could not be made: ' + (err.message || err);
+  } finally { btn.disabled = false; }
+});
 
 /* ---------- Start ---------- */
 // Version in the header. The server reports the installed version; if this page is older, it was cached.
