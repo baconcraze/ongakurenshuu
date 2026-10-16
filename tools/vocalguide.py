@@ -23,6 +23,9 @@ HOP = 160             # 10 ms frames
 CSR = 11025           # matching rate
 CHOP = 1102           # about 0.1 s matching frames
 LATE = 0.01           # notes come out about 10 ms early against the singer (measured on acapellas)
+PITCHED = 0.3        # a note needs at least one frame this periodic (YIN aperiodicity) to be kept; on the acapella
+                     # benchmark this drops guide notes made only from bridged consonants: the original singer's score
+                     # 89.5 -> 91.7 on Normal, clearly pitched singing with no guide 2.5% -> 3.0%
 BASS_GAP = 10         # semitones under the sung line that count as bass leaking into the vocal
 
 
@@ -678,7 +681,7 @@ def vocal_pitch(midi, ap, xv, xo, ratio_db=-26.0, gap=0.25, ap_max=0.45, floor=0
 def sung_line(x, xo):
     """The cleaned sung pitch line of the vocal stem x (with xo, the original mix, for the bleed check).
     Where the pitch falls far under the sung line around it, the bass has leaked into the stem: those
-    frames are tracked again, kept above that line. Returns (line in semitones, vocal-to-mix ratio)."""
+    frames are tracked again, kept above that line. Returns (line in semitones, vocal-to-mix ratio, aperiodicity)."""
     midi, ap, _ = yin_track(x, thr=0.25)
     m, ratio = vocal_pitch(midi, ap, x, xo)
     wide = medfilt(m, 201)
@@ -689,7 +692,7 @@ def sung_line(x, xo):
         fix = low & (np.abs(midi2 - wide) < 7)
         midi, ap = np.where(fix, midi2, midi), np.where(fix, np.minimum(ap2, 0.3), ap)
         m, ratio = vocal_pitch(midi, ap, x, xo)
-    return m, ratio
+    return m, ratio, ap
 
 
 def tuning_offset(m):
@@ -734,7 +737,7 @@ def dp_notes(m, dt, cost):
 
 
 def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.03, note_db=-24.0, merge_gap=0.03, repitch=True, refine=0.1, split=0.7, hold=4,
-             min_sung=0.03, iso=0.12, dp=0.0):
+             min_sung=0.03, iso=0.12, dp=0.0, ap=None, pitched=PITCHED):
     """Split the pitch line into karaoke-style notes.
     A new note starts only when the pitch stays more than 0.7 semitone from the current one for 60 ms,
     so vibrato and scoops do not chop a held note. Fragments shorter than minnote join the neighbour
@@ -794,6 +797,10 @@ def to_notes(m, ratio=None, dt=HOP / SR, minnote=0.03, note_db=-24.0, merge_gap=
             if (s1 - s0) * dt >= min_sung and np.median(r[s0:s1]) >= note_db:
                 kept.append([(i0 + s0) * dt, (i0 + s1) * dt, p])
         notes = kept
+    if ap is not None and pitched:
+        # a note with no clearly pitched frame at all comes only from bridging a gap (a consonant, a breath):
+        # there is nothing to sing there
+        notes = [x for x in notes if (ap[int(x[0] / dt):max(int(x[0] / dt) + 1, int(x[1] / dt))] < pitched).any()]
     if repitch:
         # a note's pitch is where the voice settles, not the scoop it starts with: the median of its
         # sung frames with the first and last 30 ms left out
@@ -972,10 +979,10 @@ def _build(sep, kara_path, title, duration, work, ytdlp, original, procs, video,
     ex.shutdown(wait=False)
     say('pitch', 0.75, 'Following the sung pitch')
     x = load_audio(voc, SR)
-    m, ratio = sung_line(x, load_audio(best['path'], SR))
+    m, ratio, ap = sung_line(x, load_audio(best['path'], SR))
     tune = tuning_offset(m)
     m = m - tune + best['shift']
-    notes = to_notes(m, ratio)
+    notes = to_notes(m, ratio, ap=ap)
     if len(notes) < 10:
         raise RuntimeError('too little singing was found in the original song')
     to, tk = best['map']
@@ -1005,7 +1012,8 @@ def _build(sep, kara_path, title, duration, work, ytdlp, original, procs, video,
                 'key_shift': best['shift'], 'match': round(best['match'], 3), 'gain': round(best['gain'], 3),
                 'tuning_cents': round(tune * 100), 'query': q, 'timing': 'beats' if best['fine'] else 'chroma',
                 'phrases': phrases, 'phrases_on_wipe': snapped}
-    return out, contour(m, notes, K), analysis
+    runs = [r for r in contour(m, notes, K) if not duration or r[0] < duration]
+    return out, runs, analysis
 
 
 def main():

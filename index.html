@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.16.0">
+<meta name="ongaku-renshuu-version" content="1.16.1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -2139,7 +2139,9 @@ $('#apiKey').addEventListener('input', () => { clearTimeout(keyTimer); keyTimer 
 function updateReaderUI(){
   const r = effReader();
   readerSel.value = r;
-  readerSel.querySelector('option[value="omr"]').hidden = imgInst.value !== 'sheet';
+  const sheet = imgInst.value === 'sheet';
+  for(const o of readerSel.options) o.hidden = sheet ? o.value !== 'omr' : o.value === 'omr';
+  readerSel.disabled = sheet;
   $('#cfgOllama').hidden = r !== 'ollama'; $('#cfgApi').hidden = r !== 'anthropic'; $('#cfgOmr').hidden = r !== 'omr';
   if(r === 'omr') checkOmr();
   $('#modelNote').textContent = (modelUI[r] && modelUI[r].note) || '';
@@ -2153,7 +2155,8 @@ function updateReaderUI(){
   }[r] || '';
 }
 readerSel.addEventListener('change', () => {
-  if(imgInst.value === 'sheet') settings.sheetReader = readerSel.value; else { settings.reader = readerSel.value; settings.readerChosen = true; }
+  if(imgInst.value === 'sheet') return;
+  settings.reader = readerSel.value; settings.readerChosen = true;
   saveSettings(); updateReaderUI();
 });
 // Audiveris lives in the media folder and is installed by the launcher's server on request
@@ -2244,8 +2247,10 @@ function parseLooseJSON(t){
   if(a >= 0 && b > a){ try{ return JSON.parse(t.slice(a, b + 1)); }catch(e){} }
   throw {code:'invalid_json'};
 }
-// Sheet music has its own choice of reader, Audiveris by default; tab always goes to a vision model.
-function effReader(){ return imgInst.value === 'sheet' ? (settings.sheetReader || 'omr') : (settings.reader === 'omr' ? 'ollama' : settings.reader); }
+// Sheet music is always read by Audiveris: on 11 printed test pages it got 99.3% of notes exact in about 10 s a
+// page, where a local vision model got 10% in about 14 s. Tab always goes to a vision model, since Audiveris
+// reads only standard notation. (settings.sheetReader from 1.16.0 is no longer used.)
+function effReader(){ return imgInst.value === 'sheet' ? 'omr' : (settings.reader === 'omr' ? 'ollama' : settings.reader); }
 async function askJSON(prompt, blobs, signal){
   const r = effReader() === 'omr' ? 'ollama' : effReader();
   if(r === 'claude'){ if(!sampleFn) throw {code:'images_unavailable'}; return sampleFn.json(prompt, {images:blobs, signal}); }
@@ -3971,7 +3976,8 @@ async function karaLoad(id, autoplay){
   kara.song = js; kara.id = id;
   kara.adj = Object.assign({key:0}, kAdjAll()[id] || {});
   kara.notes = tidyNotes((js.notes || []).map(([t, d, m]) => ({t, e:t + d, m})));
-  kara.contour = Array.isArray(js.contour) ? js.contour : [];
+  // the fine line only where a bar is drawn, so a dropped blip leaves nothing behind
+  kara.contour = (Array.isArray(js.contour) ? js.contour : []).filter(([t0, step, v]) => { const mid = t0 + step * v.length / 2; return kara.notes.some(n => mid >= n.t && mid <= n.e); });
   kara.pops = []; kara.lastTarget = null; kara.combo = 0; kara.extra = 0;
   kara.lines = (js.lyrics || []).filter(l => l.text);
   kara.track = []; kara.stats = null; kara.loopA = kara.loopB = null; setLoopUI();
@@ -3991,11 +3997,15 @@ function playQueueHead(){
   karaLoad(item.id, true);
 }
 const kTarget = t => { for(const n of kara.notes){ if(n.t > t) break; if(t < n.e) return n; } return null; };
-// A guide from the original vocal follows every slide, so it has many notes under 80 ms. Merging those into the
+// A guide from the original vocal follows every slide, so it has many notes under 120 ms. Merging those into the
 // note beside them (nearest in pitch) costs about 5 points of pitch accuracy against the acapella benchmark, so it
 // is only done for the bars on screen: each drawn note keeps its exact parts, and a sung frame is judged against
-// whichever is closer, the drawn bar or the exact note under it.
-const TIDY = 0.08;
+// whichever is closer, the drawn bar or the exact note under it. At 120 ms (was 80) the specks are gone (36 to 2
+// a minute); the bars match the singer a little less often (93% to 90%), the scoring not at all.
+const TIDY = 0.12;
+// a lone blip (under 0.35 s of bars, 0.6 s or more from any other singing) is mostly bleed or a breath:
+// on the acapella benchmark 14 of 18 were wrong or had no clear voice
+const BLIP = 0.35, BLIP_GAP = 0.6;
 function tidyNotes(fine){
   let ns = fine.map(n => ({t:n.t, e:n.e, m:n.m, parts:[n]}));
   for(;;){
@@ -4017,19 +4027,31 @@ function tidyNotes(fine){
     const p = out[out.length - 1];
     if(p && p.m === n.m && n.t - p.e < 0.03){ p.e = n.e; p.parts = p.parts.concat(n.parts); } else out.push(n);
   }
-  return out.map(n => Object.assign(n, {act:0, hit:0, close:0}));
+  const groups = [];
+  for(const n of out){ const g = groups[groups.length - 1]; if(g && n.t - g[g.length - 1].e < 0.3) g.push(n); else groups.push([n]); }
+  const kept = groups.filter((g, k) => g[g.length - 1].e - g[0].t >= BLIP
+    || (k > 0 && g[0].t - groups[k - 1][groups[k - 1].length - 1].e < BLIP_GAP)
+    || (k + 1 < groups.length && groups[k + 1][0].t - g[g.length - 1].e < BLIP_GAP)).flat();
+  return kept.map(n => Object.assign(n, {act:0, hit:0, close:0}));
 }
 const partAt = (n, t) => n.parts.find(q => t >= q.t && t < q.e) || n;
 // Difficulty, like a karaoke machine's scoring levels. on: how close counts as on pitch, in semitones (0.5 is
 // 50 cents); close: half credit; skip: the start of each note left unjudged, so sliding into a note is free;
 // octave: whether the guide's octave matters (otherwise any octave counts, for every voice range);
-// full: the share of a note that has to be on pitch for full marks.
+// full: the share of the heard singing in a note that has to be on pitch for full marks.
+// Pitch is judged only where a voice is heard (consonants and breaths have none), and a note gets full credit
+// once it is heard for VOICED of its length. Replaying the original singers' acapellas with added pitch error
+// gives, on Normal: the original singer 94, a good singer 93, an average one 86, a weak one 69, a poor one 52,
+// close to a karaoke machine, where most people land in the 80s. Judging silence as a miss instead held the
+// original singers to 85.
 const LEVELS = {
   easy:{on:1, close:2, skip:0.15, octave:false, full:0.55, help:'Easy: within a semitone counts, in any octave, and sliding into a note is free.'},
   normal:{on:0.5, close:1, skip:0.1, octave:false, full:0.7, help:'Normal: within 50 cents (a quarter tone) counts, in any octave.'},
   hard:{on:0.35, close:0.7, skip:0.06, octave:false, full:0.8, help:'Hard: within 35 cents counts, in any octave.'},
-  pro:{on:0.25, close:0.5, skip:0.03, octave:true, full:0.85, help:'Pro: within 25 cents, in the guide\'s own octave (move it with Key).'},
+  pro:{on:0.3, close:0.6, skip:0.03, octave:true, full:0.85, help:'Pro: within 30 cents, in the guide\'s own octave (move it with Key).'},
 };
+const VOICED = 0.4;
+const noteCredit = n => !n.act || !n.voiced ? 0 : Math.min(1, (n.hit + 0.5 * n.close) / n.voiced / kLevel().full) * Math.min(1, n.voiced / n.act / VOICED);
 const kLevel = () => LEVELS[settings.karaLevel] || LEVELS.normal;
 settings.karaLevel = LEVELS[settings.karaLevel] ? settings.karaLevel : 'normal';
 $('#kLevel').value = settings.karaLevel; $('#kLevel').title = kLevel().help;
@@ -4085,13 +4107,13 @@ function scoreNow(){
   const sung = kara.notes.filter(n => n.act > 0);
   let tot = 0, got = 0, hitN = 0, streak = 0, best = 0, act = 0, on = 0, voiced = 0;
   for(const n of sung){
-    const d = n.e - n.t, credit = Math.min(1, (n.hit + 0.5 * n.close) / n.act / kLevel().full);
+    const d = n.e - n.t, credit = noteCredit(n);
     tot += d; got += credit * d; act += n.act; on += n.hit; voiced += n.voiced || 0;
     if(credit >= 0.5){ hitN++; streak++; best = Math.max(best, streak); } else streak = 0;
   }
   const extra = settings.karaExtra ? kara.extra || 0 : 0;     // seconds sung with no guide note
   const score = tot ? 100 * got / (tot + extra) : 0;
-  return {score, acc:act ? 100 * on / act : 0, hitN, total:sung.length, best, voiced:act ? 100 * voiced / act : 0, extra};
+  return {score, acc:voiced ? 100 * on / voiced : 0, hitN, total:sung.length, best, voiced:act ? 100 * voiced / act : 0, extra};
 }
 const GRADES = [[95, 'S', 'Superb!'], [90, 'A', 'Excellent'], [80, 'B', 'Great singing'], [70, 'C', 'Good'], [55, 'D', 'Keep practicing'], [0, 'E', 'Warm-up round']];
 function showResult(final){
@@ -4225,7 +4247,8 @@ function karaFrame(){
     kara.extra = (kara.extra || 0) + step;
   }
   kara.lastExtraT = tt;
-  if(live && target && m && tt - target.t >= lv.skip){
+  // a short note is never mostly skipped: at most its first quarter goes unjudged (a 0.15 s note had 50 ms left)
+  if(live && target && m && tt - target.t >= Math.min(lv.skip, 0.25 * (target.e - target.t))){
     target.act++;
     if(sungMidi != null){ target.voiced = (target.voiced || 0) + 1; if(Math.abs(dev) <= lv.on) target.hit++; else if(Math.abs(dev) <= lv.close) target.close++; }
   }
@@ -4242,7 +4265,7 @@ const RATINGS = [[0.9, 'Perfect', '#8ef08e'], [0.7, 'Great', '#c6f07a'], [0.45, 
 function rateNote(n){
   if(n.rated || n.act < 4) return;
   n.rated = true;
-  const credit = Math.min(1, (n.hit + 0.5 * n.close) / n.act / kLevel().full);
+  const credit = noteCredit(n);
   const r = RATINGS.find(x => credit >= x[0]);
   kara.combo = credit >= 0.45 ? kara.combo + 1 : 0;
   kara.pops.push({n, text:r[1], color:r[2], at:performance.now()});
@@ -4281,7 +4304,7 @@ function drawLane(t, tt, key, target, sungMidi, dev){
     if(n.e < t - 1.6 || n.t > t + 5) continue;
     const x0 = Math.max(L.x, X(n.t)), x1 = Math.min(L.x + L.w, X(n.e)), y = Y(n.m + key);
     if(x1 <= x0) continue;
-    const done = n.e < tt, credit = n.act ? Math.min(1, (n.hit + 0.5 * n.close) / n.act / 0.7) : 0;
+    const done = n.e < tt, credit = noteCredit(n);
     c.fillStyle = done ? (n.act ? (credit >= 0.45 ? 'rgba(120,214,120,0.95)' : 'rgba(255,255,255,0.28)') : 'rgba(240,210,122,0.35)')
       : n === target ? '#ffe08a' : 'rgba(240,210,122,0.85)';
     const r = Math.min(hgt / 2, 6);
