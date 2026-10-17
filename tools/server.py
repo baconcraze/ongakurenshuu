@@ -18,6 +18,8 @@ KINDS = {'karaoke': 'karaoke.py', 'piano': 'pianovideo.py'}
 FOLLOW = {'lyrics': ('karaoke.py', ['--lyrics-text'])}
 # sheet music from images (tools/omr.py, Audiveris): 'omr' reads the pages saved in MEDIA/omr/<n>/, 'omr-setup' installs it
 OMR_KINDS = ('omr', 'omr-setup')
+# a sheet-music guide for a karaoke song (tools/sheetguide.py): url is the song's folder, opts 'file' or 'usdb'
+GUIDE_EXT = ('.txt', '.mid', '.midi', '.musicxml', '.xml', '.mxl')
 
 
 class Jobs:
@@ -54,6 +56,9 @@ class Jobs:
             j['message'] = 'Starting'
             if j['kind'] == 'omr-setup':
                 cmd = [sys.executable, os.path.join(HERE, 'omr.py'), '--setup', '--media', self.media]
+            elif j['kind'] == 'guide':
+                cmd = [sys.executable, os.path.join(HERE, 'sheetguide.py'), j['url'], '--media', self.media] + \
+                      (['--file', j['opts']['file']] if j['opts'].get('file') else ['--usdb'])
             elif j['kind'] == 'omr':
                 pages = sorted(f for f in os.listdir(j['url']) if f.startswith('page-'))
                 cmd = [sys.executable, os.path.join(HERE, 'omr.py'), *[os.path.join(j['url'], f) for f in pages],
@@ -61,7 +66,7 @@ class Jobs:
             else:
                 script, extra = FOLLOW.get(j['kind']) or (KINDS[j['kind']], [])
                 cmd = [sys.executable, os.path.join(HERE, script), j['url'], '--media', self.media] + extra
-            for k, v in (j.get('opts') or {}).items():
+            for k, v in (j.get('opts') or {}).items() if j['kind'] != 'guide' else ():
                 cmd += [f'--{k}', v]
             try:
                 # low priority, so singing along to the current song stays smooth while the next ones are prepared
@@ -85,7 +90,9 @@ class Jobs:
                 j['state'] = 'done' if p.returncode == 0 else 'failed'
                 if p.returncode != 0 and j['kind'] in OMR_KINDS and j['message'] in ('Starting', ''):
                     j['message'] = 'Audiveris could not read this.'
-                if p.returncode == 0 and j['kind'] in OMR_KINDS:
+                if j['kind'] == 'guide':
+                    j['song'] = os.path.basename(j['url'])
+                elif p.returncode == 0 and j['kind'] in OMR_KINDS:
                     if j['kind'] == 'omr':
                         j['song'] = 'media/omr/' + os.path.basename(j['url']) + '/score.musicxml'
                 elif p.returncode == 0:
@@ -123,6 +130,13 @@ def read_songs(media, kind):
                     'video': f'media/{kind}/{d}/{s.get("video", "video.mp4")}', 'song': f'media/{kind}/{d}/song.json'})
     out.sort(key=lambda s: -(s.get('created') or 0))
     return out
+
+
+def usdb_user(media):
+    try:
+        return json.load(open(os.path.join(media, 'usdb.json'))).get('user') or None
+    except (OSError, ValueError):
+        return None
 
 
 def ollama_up(url='http://127.0.0.1:11434'):
@@ -194,7 +208,7 @@ def make_handler(root, media, jobs, port):
                                     'ffmpeg': bool(shutil.which('ffmpeg')), 'kinds': list(KINDS),
                                     'separator': os.path.exists(os.path.join(media, 'vocal-venv', 'bin', 'python')),
                                     'omr': os.access(os.path.join(media, 'audiveris', 'opt', 'audiveris', 'bin', 'Audiveris'), os.X_OK),
-                                    'version': app_version(root)})
+                                    'usdb': usdb_user(media), 'version': app_version(root)})
                 elif path == '/api/library':
                     self.send_json({k: read_songs(media, k) for k in KINDS})
                 elif path == '/api/jobs':
@@ -226,6 +240,58 @@ def make_handler(root, media, jobs, port):
             path = urllib.parse.urlparse(self.path).path
             if not self.api_ok(write=True):
                 self.send_error(HTTPStatus.FORBIDDEN)
+                return
+            if path == '/api/usdb-login':
+                try:
+                    body = self.read_body()
+                except ValueError:
+                    self.send_json({'error': 'Bad request'}, 400)
+                    return
+                user, pw = str(body.get('user') or '').strip(), str(body.get('pass') or '')
+                if not user:
+                    try:
+                        os.remove(os.path.join(media, 'usdb.json'))
+                    except OSError:
+                        pass
+                    self.send_json({'ok': True, 'user': None})
+                    return
+                sys.path.insert(0, HERE)
+                import sheetguide
+                try:
+                    sheetguide.save_login(media, user, pw)
+                except Exception as e:
+                    self.send_json({'error': str(e)[:1].upper() + str(e)[1:]}, 400)
+                    return
+                self.send_json({'ok': True, 'user': user})
+                return
+            if path == '/api/guide':
+                try:
+                    body = self.read_body(12 << 20)
+                except ValueError:
+                    self.send_json({'error': 'That file is too large'}, 400)
+                    return
+                sid = str(body.get('song') or '')
+                d = os.path.join(media, 'karaoke', sid)
+                if not re.match(r'^[\w-]+$', sid) or not os.path.isfile(os.path.join(d, 'song.json')):
+                    self.send_json({'error': 'Unknown song'}, 400)
+                    return
+                if body.get('data'):
+                    ext = os.path.splitext(str(body.get('name') or '').lower())[1]
+                    if ext not in GUIDE_EXT:
+                        self.send_json({'error': 'Use an UltraStar .txt, a MIDI file or a MusicXML file'}, 400)
+                        return
+                    try:
+                        raw = base64.b64decode(body['data'], validate=True)
+                    except ValueError:
+                        self.send_json({'error': 'Bad request'}, 400)
+                        return
+                    os.makedirs(os.path.join(d, 'work'), exist_ok=True)
+                    f = os.path.join(d, 'work', 'guide-upload' + ext)
+                    with open(f, 'wb') as fh:
+                        fh.write(raw)
+                    self.send_json(jobs.add('guide', d, {'file': f}))
+                else:
+                    self.send_json(jobs.add('guide', d, {'usdb': '1'}))
                 return
             if path == '/api/omr-setup':
                 self.send_json(jobs.add('omr-setup', 'audiveris'))

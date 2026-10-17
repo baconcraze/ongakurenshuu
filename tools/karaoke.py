@@ -1305,6 +1305,22 @@ def main():
                 if a.method == 'vocals':
                     raise
                 say('notes', 0.02, f'The original song could not be used ({vocal_err.rstrip(".")}). Reading the video\'s own pitch bars instead.')
+        if song.get('guide') == 'vocals':
+            # a written melody from the UltraStar song database, lined up with the singer, when a login is saved
+            import sheetguide
+            if os.path.exists(sheetguide.usdb_file(media)):
+                try:
+                    titles, artists = sheetguide.song_names(song)
+                    snotes, sinfo = sheetguide.from_usdb(media, dest, titles, artists, dur)
+                    if snotes:
+                        sheetguide.apply_guide(song, snotes, sinfo)
+                        say('sheet', 1, f'Sheet-music guide from USDB ({round(100 * sinfo["match"])}% match the singer)')
+                    else:
+                        song['analysis']['sheet'] = sinfo
+                        say('sheet', 1, 'No sheet-music guide that matches the singer was found; using the original vocals')
+                except Exception as e:
+                    song['analysis']['sheet'] = {'error': str(e)}
+                    say('sheet', 1, f'The sheet-music search did not work ({e}); using the original vocals')
         if not song['notes']:
             try:
                 notes, ninfo, (y0, y1) = extract_notes(path, dur, a.procs)
@@ -1333,6 +1349,25 @@ def main():
             song['guide'] = 'bars'
             if vocal_err:
                 song['analysis']['vocals_error'] = vocal_err
+            if a.method == 'bars' and not vocal_err:
+                # the bars give the layout; the original recording gives each bar its real pitch and fills the
+                # stretches the video draws nothing for (on the acapella benchmark: on pitch 75% -> 86%,
+                # singing with no guide 40% -> 13%)
+                import vocalguide, sheetguide
+                if vocalguide.separator_ready(media):
+                    try:
+                        say('notes', 0.95, 'Taking the pitch from the original song')
+                        vnotes, cont, vinfo = vocalguide.build(path, song['title'], dur, media, work_dir(dest), ytdlp_cmd(media),
+                                                              a.original, a.procs)
+                        fused, finfo = sheetguide.bars_with_original(song['notes'], sheetguide.load_line(dest), vnotes)
+                        song['guides'] = {'bars': {'notes': fused, 'analysis': dict(ninfo, original_pitch=finfo)},
+                                          'vocals': {'notes': vnotes, 'analysis': vinfo}}
+                        song['notes'], song['contour'] = fused, cont
+                        song['analysis']['original_pitch'] = finfo
+                        song['analysis']['original'] = vinfo.get('original')
+                    except Exception as e:
+                        song['analysis']['original_pitch'] = {'error': str(e)}
+                        say('notes', 0.97, f'The original song could not be used for the pitch ({e}); keeping the bars as read')
         song['notes_count'] = len(song['notes'])
         json.dump(song, open(os.path.join(dest, 'song.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         update_index(media)
