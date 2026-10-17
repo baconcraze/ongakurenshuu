@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.16.1">
+<meta name="ongaku-renshuu-version" content="1.17.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -433,6 +433,15 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
         <p id="kMethodHelp" class="help"></p>
         <div class="row-btns"><button class="btn primary" id="kImportQ">Import and queue</button><button class="btn" id="kImport">Import</button></div>
         <p id="kSrvMsg" class="help"></p>
+        <details id="kSheet"><summary>Sheet-music guides</summary>
+          <p class="help">A written melody makes the cleanest guide: one bar per sung note, like a karaoke machine. With a free login for the UltraStar song database (<a href="https://usdb.animux.de/" target="_blank" rel="noopener">usdb.animux.de</a>), every import looks the song up there. It is only used when it follows the original singer closely; otherwise the song keeps the guide from the original vocals. You can switch guides for each song under Guide.</p>
+          <div id="kUsdbOut"><label class="f">USDB user name<input id="kUsdbUser" autocomplete="username"></label><label class="f">USDB password<input id="kUsdbPass" type="password" autocomplete="current-password"></label><div class="row-btns"><button class="btn" id="kUsdbLogin">Log in</button></div></div>
+          <div id="kUsdbIn" hidden><p class="help" id="kUsdbState"></p><div class="row-btns"><button class="btn" id="kUsdbLogout">Log out</button></div></div>
+          <p class="help">For the song that is open: load your own UltraStar .txt, MIDI or MusicXML file (sheet music read with Import from image, exported as MusicXML, works too), or look it up in USDB again.</p>
+          <div class="row-btns"><button class="btn" id="kGuideFile">Load a guide file</button><button class="btn" id="kGuideUsdb">Search USDB</button></div>
+          <input type="file" id="kGuideIn" accept=".txt,.mid,.midi,.musicxml,.xml,.mxl" hidden>
+          <p class="help" id="kGuideMsg" role="status"></p>
+        </details>
       </div>
       <h3>Queue</h3>
       <ol id="kQueue" class="klist"></ol>
@@ -447,6 +456,7 @@ svg.notation .vf-vfscore .hit,svg.notation .vf-vfscore .hit [stroke]:not([stroke
     <input type="range" id="kSeek" min="0" max="1000" value="0" aria-label="Position">
     <button class="tog" id="kMic" aria-pressed="false" title="Sing into your microphone to be scored">Microphone</button>
     <span class="kgrp"><label class="kdim" for="kLevel">Level</label><select id="kLevel" title="How close to the note your singing has to be"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="pro">Pro</option></select><button class="tog" id="kExtra" aria-pressed="false" title="Also count singing where there is no guide note against your score. Karaoke machines judge only the guide, so this is off unless you want it.">Score extras</button></span>
+    <span class="kgrp" id="kGuideWrap" hidden><label class="kdim" for="kGuide">Guide</label><select id="kGuide" title="Which pitch guide to sing along to"></select></span>
     <span class="kgrp"><span class="kdim">Key</span><button class="ibtn sm" id="kKeyDn" aria-label="Guide key down">&minus;</button><output id="kKey">0</output><button class="ibtn sm" id="kKeyUp" aria-label="Guide key up">+</button></span>
     <span class="kgrp" id="kPracticeCtl"><label class="kdim" for="kSpeed">Speed</label><select id="kSpeed"><option value="1">100%</option><option value="0.9">90%</option><option value="0.8">80%</option><option value="0.7">70%</option><option value="0.6">60%</option></select>
       <button class="tog" id="kLoopA" title="Start of a section to repeat">A</button><button class="tog" id="kLoopB" title="End of the section to repeat">B</button><button class="tog" id="kLoop" aria-pressed="false" title="Repeat the song, or the A to B section">Repeat</button></span>
@@ -3962,7 +3972,7 @@ function updateMethodUI(){
   $('#kOrigWrap').hidden = m !== 'auto';
   $('#kMethodHelp').textContent = m === 'auto'
     ? `Give the karaoke video, the original song, or both: whichever is missing is found on YouTube. The singer's voice is separated from the original and its pitch becomes the guide. If that fails, it reads the video's own pitch bars instead.${kara.separator === false ? ' The first time, it installs the vocal separator (a few GB), which takes a while.' : ''}`
-    : 'Reads the pitch bars drawn on the video (音程バー). Use this for videos that show a pitch guide.';
+    : 'Reads the pitch bars drawn on the video (音程バー) for the layout of the notes. When the vocal separator is installed, the original song is found on YouTube too: each bar takes the pitch the singer really sings, and the parts the video draws no bars for are filled in from the singer. Switch to the original vocals guide under Guide at any time.';
 }
 settings.karaMethod = settings.karaMethod === 'bars' ? 'bars' : 'auto';
 $('#kMethod').value = settings.karaMethod;
@@ -3975,10 +3985,8 @@ async function karaLoad(id, autoplay){
   try{ js = await (await fetch(meta.song, {cache:'no-store'})).json(); }catch(e){ toast('That song could not be opened.'); return; }
   kara.song = js; kara.id = id;
   kara.adj = Object.assign({key:0}, kAdjAll()[id] || {});
-  kara.notes = tidyNotes((js.notes || []).map(([t, d, m]) => ({t, e:t + d, m})));
-  // the fine line only where a bar is drawn, so a dropped blip leaves nothing behind
-  kara.contour = (Array.isArray(js.contour) ? js.contour : []).filter(([t0, step, v]) => { const mid = t0 + step * v.length / 2; return kara.notes.some(n => mid >= n.t && mid <= n.e); });
-  kara.pops = []; kara.lastTarget = null; kara.combo = 0; kara.extra = 0;
+  useGuide();
+  kara.pops = []; kara.lastTarget = null; kara.combo = 0; kara.extra = 0; kara.laneH = 0;
   kara.lines = (js.lyrics || []).filter(l => l.text);
   kara.track = []; kara.stats = null; kara.loopA = kara.loopB = null; setLoopUI();
   $('#kTitle').textContent = js.title || id; $('#kArtist').textContent = js.artist || '';
@@ -3990,6 +3998,64 @@ async function karaLoad(id, autoplay){
   fitView(true); renderKaraSongs();
   if(autoplay){ try{ await kv.play(); }catch(e){} }
 }
+// A song can carry several guides (song.guides: 'sheet', 'vocals', 'bars'); song.notes is its default one.
+// The choice is kept per song with its key shift.
+const GUIDE_NAMES = {sheet:'Sheet music', vocals:'Original vocals', bars:'Video\'s pitch bars'};
+function useGuide(){
+  const js = kara.song, gs = js.guides || {}, keys = Object.keys(gs);
+  const pick = kara.adj.guide && gs[kara.adj.guide] ? kara.adj.guide : js.guide;
+  const notes = pick && gs[pick] ? gs[pick].notes : js.notes;
+  kara.notes = tidyNotes((notes || []).map(([t, d, m]) => ({t, e:t + d, m})));
+  // the fine line only where a bar is drawn, so a dropped blip leaves nothing behind
+  kara.contour = (Array.isArray(js.contour) ? js.contour : []).filter(([t0, step, v]) => { const mid = t0 + step * v.length / 2; return kara.notes.some(n => mid >= n.t && mid <= n.e); });
+  const sel = $('#kGuide');
+  $('#kGuideWrap').hidden = keys.length < 2;
+  sel.innerHTML = keys.map(k => {
+    const a = gs[k].analysis || {};
+    const more = k === 'sheet' ? (a.usdb_id ? ' (USDB)' : a.file ? ' (your file)' : '') : '';
+    return `<option value="${esc(k)}">${esc((GUIDE_NAMES[k] || k) + more)}</option>`;
+  }).join('');
+  if(keys.includes(pick)) sel.value = pick;
+}
+$('#kGuide').addEventListener('change', e => {
+  if(!kara.song) return;
+  kara.adj.guide = e.target.value;
+  const all = kAdjAll(); all[kara.id] = kara.adj; store.set('ongaku.karaokeAdjust', all);
+  useGuide(); kara.lastTarget = null; kara.stats = null; fitView(true);
+});
+
+// ---- sheet-music guides: USDB login, your own file, or a new USDB search for the open song
+function usdbUI(user){
+  $('#kUsdbOut').hidden = !!user; $('#kUsdbIn').hidden = !user;
+  $('#kUsdbState').textContent = user ? `Logged in to USDB as ${user}. Imports look songs up there.` : '';
+  $('#kGuideUsdb').disabled = !user;
+}
+api('api/info').then(i => usdbUI(i.usdb)).catch(() => usdbUI(null));
+$('#kUsdbLogin').addEventListener('click', async () => {
+  const msg = $('#kGuideMsg'); msg.textContent = 'Checking the login with USDB...';
+  try{ const r = await api('api/usdb-login', {method:'POST', body:JSON.stringify({user:$('#kUsdbUser').value.trim(), pass:$('#kUsdbPass').value})}); $('#kUsdbPass').value = ''; usdbUI(r.user); msg.textContent = ''; }
+  catch(e){ msg.textContent = e.message; }
+});
+$('#kUsdbLogout').addEventListener('click', async () => { try{ await api('api/usdb-login', {method:'POST', body:JSON.stringify({user:''})}); }catch(e){} usdbUI(null); });
+async function guideJob(body){
+  const msg = $('#kGuideMsg');
+  if(!kara.id || !kara.lib.find(x => x.id === kara.id && !x.demo)){ msg.textContent = 'Open one of your imported songs first.'; return; }
+  try{
+    const j = await api('api/guide', {method:'POST', body:JSON.stringify(Object.assign({song:kara.id}, body))});
+    const id = kara.id;
+    const done = await waitJob(j.id, m => { msg.textContent = m; });
+    msg.textContent = done.message || 'Done.';
+    if(kara.id === id){ kara.adj.guide = 'sheet'; const all = kAdjAll(); all[id] = kara.adj; store.set('ongaku.karaokeAdjust', all); await karaLoad(id, false); }
+  }catch(e){ msg.textContent = e.message; }
+}
+$('#kGuideUsdb').addEventListener('click', () => guideJob({usdb:true}));
+$('#kGuideFile').addEventListener('click', () => $('#kGuideIn').click());
+$('#kGuideIn').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if(!f) return;
+  if(f.size > 8 << 20){ $('#kGuideMsg').textContent = 'That file is too large for a melody.'; return; }
+  guideJob({name:f.name, data:await blobToB64(f)});
+});
 function playQueueHead(){
   const item = kara.queue[0];
   if(!item){ return; }
@@ -4003,6 +4069,8 @@ const kTarget = t => { for(const n of kara.notes){ if(n.t > t) break; if(t < n.e
 // whichever is closer, the drawn bar or the exact note under it. At 120 ms (was 80) the specks are gone (36 to 2
 // a minute); the bars match the singer a little less often (93% to 90%), the scoring not at all.
 const TIDY = 0.12;
+// room left for furigana above a lyric line, a line's height, and the smallest lane (shares of the video height)
+const LYRIC_PAD = 0.06, LYRIC_LINE = 0.1, LANE_MIN = 0.16;
 // a lone blip (under 0.35 s of bars, 0.6 s or more from any other singing) is mostly bleed or a breath:
 // on the acapella benchmark 14 of 18 were wrong or had no clear voice
 const BLIP = 0.35, BLIP_GAP = 0.6;
@@ -4284,15 +4352,30 @@ function drawLane(t, tt, key, target, sungMidi, dev){
   // cover the video's own pitch guide (found during import) with this lane; otherwise sit at the top or the bottom
   const st = kara.song.guide !== 'vocals' && kara.song.analysis && kara.song.analysis.staff;
   const share = st ? Math.min(0.5, Math.max(0.24, (st[1] + 30) / 720)) : 0.34;
-  const lh = vid ? vr.h * share : H2 * 0.48;
   const bottom = vid && !st && settings.karaLanePos === 'bottom';
-  const L = {x:vr.x, y:bottom ? vr.y + vr.h - lh : vr.y, w:vr.w, h:lh};
+  let lh = vid ? vr.h * share : H2 * 0.48, see = false;
+  // the lyric lines on screen now (their tops were measured on a 720-high frame)
+  const ly = vid && !st ? (kara.song.lyrics || []).filter(l => l.y != null && t >= l.t0 - 3 && t <= l.t1 + 1).map(l => l.y) : [];
+  if(bottom && ly.some(y => (y / 720 + LYRIC_LINE) * vr.h > vr.h - lh)) see = true;   // under the lyrics: let them show through
+  if(!bottom){
+    // stop above them, leaving room for furigana; when the words sit too high for that, keep a small lane and
+    // let the words show through
+    if(ly.length){
+      const room = vr.h * (Math.min(...ly) / 720 - LYRIC_PAD), min = vr.h * LANE_MIN;
+      if(room < min) see = true;
+      lh = Math.max(min, Math.min(lh, room));
+    }
+  }
+  kara.laneH = kara.laneH ? kara.laneH + (lh - kara.laneH) * 0.08 : lh;   // ease, so the lane does not jump between lines
+  if(Math.abs(kara.laneH - lh) > vr.h * 0.3) kara.laneH = lh;            // a seek or a resize: jump straight there
+  const L = {x:vr.x, y:bottom ? vr.y + vr.h - kara.laneH : vr.y, w:vr.w, h:kara.laneH};
   fitView(false);
   const lo = kara.view.lo, hi = kara.view.hi, span = hi - lo;
   const pps = L.w / 6, px0 = L.x + L.w * 0.22;
   const X = time => px0 + (time - t) * pps, Y = midi => L.y + L.h - 6 - (midi - lo) / span * (L.h - 12);
-  // solid: most karaoke videos have pitch bars of their own up there, and two sets of bars at once are unreadable
-  c.fillStyle = 'rgba(12,9,8,0.95)'; c.fillRect(L.x, L.y, L.w, L.h);
+  // nearly solid over the video's own pitch bars (two sets of bars at once are unreadable), lighter elsewhere so
+  // the picture shows through, and see-through when it has to overlap the lyrics
+  c.fillStyle = `rgba(12,9,8,${st ? 0.95 : see ? 0.45 : 0.72})`; c.fillRect(L.x, L.y, L.w, L.h);
   c.save(); c.beginPath(); c.rect(L.x, L.y, L.w, L.h); c.clip();
   c.lineWidth = 1;
   for(let p = Math.ceil(lo); p <= hi; p++){

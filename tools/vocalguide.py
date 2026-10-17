@@ -65,7 +65,9 @@ def search_query(title, keep_quoted=False):
     return t or (title or '').strip()
 
 
-BAD = re.compile(r'カラオケ|karaoke|instrumental|off\s*vocal|オフボーカル|歌ってみた|cover|カバー|piano|ピアノ|guitar|ギター|'
+BAD = re.compile(r'カラオケ|karaoke|instrumental|off\s*vocal|オフボーカル|歌ってみた|歌わせていただきました|歌ってもらった|替え歌|cover|カバー|'
+                 r'tr(y|ied|ying) (to )?sing|i sang|sang it|sung by me|'
+                 r'piano|ピアノ|guitar|ギター|'
                  r'orchestra|オーケストラ|remix|リミックス|弾いてみた|叩いてみた|吹いてみた|演奏|music\s*box|オルゴール|8.?bit|'
                  r'nightcore|slowed|sped|trumpet|トランペット|sax|サックス|flute|フルート|violin|バイオリン|ヴァイオリン|'
                  r'cello|チェロ|ocarina|オカリナ|harmonica|ハーモニカ|erhu|二胡|ukulele|ウクレレ|tutorial|lesson|レッスン|'
@@ -109,6 +111,10 @@ def find_candidates(ytdlp, title, duration, want=4, exclude=()):
             # a music video often runs longer than the song (a story intro or outro); lining up copes with
             # that, but a shorter upload is usually a cut-down (TV size) version
             over = d - duration
+            if d > max(2 * duration, duration + 300) or d < 0.6 * duration:
+                # a compilation or a whole album (separating hours of audio runs out of memory), or a TV-size
+                # cut or a short clip, which covers only part of the song
+                continue
             cost = abs(over) / max(30.0, duration) * (5 if over > 0 else 10)
             if over > max(60, 0.35 * duration) or -over > max(25, 0.15 * duration):
                 cost += 6
@@ -1000,6 +1006,9 @@ def _build(sep, kara_path, title, duration, work, ytdlp, original, procs, video,
         K, snapped, phrases = snap_phrases(notes, K0, onsets)
     Kd = K
     K = lambda t: Kd(t) + LATE
+    # the sung line and the timing, kept so a sheet-music guide can be lined up with the singer later (sheetguide.py)
+    go = np.arange(0, len(m) * HOP / SR, 0.1)
+    np.savez(os.path.join(work, 'line.npz'), m=m.astype(np.float32), dt=HOP / SR, go=go, gk=np.array([K(t) for t in go]))
     out = []
     for s0, e0, p in notes:
         a, b = K(s0), K(e0)
