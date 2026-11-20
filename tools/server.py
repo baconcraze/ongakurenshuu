@@ -8,7 +8,7 @@ the app's own address, so other web pages cannot start downloads.
 
 Usage: server.py [--port 8765] [--root APP_DIR] [--media MEDIA_DIR]
 """
-import argparse, base64, json, os, queue, re, shutil, subprocess, sys, threading, time, urllib.parse, urllib.request
+import argparse, base64, json, os, queue, re, shutil, socket, subprocess, sys, threading, time, urllib.parse, urllib.request
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -155,8 +155,64 @@ def app_version(root):
         return ''
 
 
-def make_handler(root, media, jobs, port):
+LIB_LOCK = threading.Lock()
+
+
+def merge_library(media, songs, deleted):
+    """Merge a browser's library into MEDIA/library.json and return the result.
+
+    Each song carries `updated` (ms); the newer copy of a song wins. A deletion is kept as
+    a tombstone {id: ms} and removes the song unless that song was saved again later.
+    """
+    path = os.path.join(media, 'library.json')
+    with LIB_LOCK:
+        try:
+            with open(path, encoding='utf-8') as f:
+                have = json.load(f)
+        except (OSError, ValueError):
+            have = {}
+        dead = {str(k): v for k, v in (have.get('deleted') or {}).items() if isinstance(v, (int, float))}
+        for k, v in (deleted or {}).items():
+            if isinstance(v, (int, float)):
+                dead[str(k)] = max(v, dead.get(str(k), 0))
+        when = lambda x: x.get('updated') if isinstance(x.get('updated'), (int, float)) else 0
+        out = {}
+        for x in (songs or []) + (have.get('songs') or []):  # the browser's order first, so its list stays as it was
+            if not isinstance(x, dict) or not x.get('id'):
+                continue
+            k = str(x['id'])
+            if k not in out or when(x) > when(out[k]):
+                out[k] = x
+        merged = [x for k, x in out.items() if when(x) > dead.get(k, -1)]
+        data = {'version': 1, 'songs': merged, 'deleted': dead}
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, path)
+        return data
+
+
+def lan_addresses():
+    """This computer's IPv4 addresses on the local network."""
+    ips = set()
+    try:
+        out = subprocess.run(['ip', '-4', '-o', 'addr', 'show', 'scope', 'global'], capture_output=True, text=True, timeout=5).stdout
+        ips.update(re.findall(r'inet (\d+\.\d+\.\d+\.\d+)/', out))
+    except Exception:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sk:
+            sk.connect(('192.0.2.1', 9))  # no packet is sent; this just picks the outgoing address
+            ips.add(sk.getsockname()[0])
+    except OSError:
+        pass
+    return sorted(ips)
+
+
+def make_handler(root, media, jobs, port, lan=False):
     allowed_hosts = {f'127.0.0.1:{port}', f'localhost:{port}'}
+    if lan:  # --lan: also accept this computer's network addresses, so a phone on the same Wi-Fi can open it
+        allowed_hosts |= {f'{ip}:{port}' for ip in lan_addresses()} | {f'{socket.gethostname()}.local:{port}'}
     allowed_origins = {f'http://{h}' for h in allowed_hosts}
 
     class Handler(SimpleHTTPRequestHandler):
@@ -321,6 +377,18 @@ def make_handler(root, media, jobs, port):
                         f.write(b)
                 self.send_json(jobs.add('omr', d))
                 return
+            if path == '/api/sync':
+                # the browser's library in, the merged library (every device's songs) out
+                try:
+                    body = self.read_body(64 << 20)
+                except ValueError:
+                    self.send_json({'error': 'The library is too large to sync'}, 400)
+                    return
+                if not isinstance(body.get('songs'), list) or not isinstance(body.get('deleted', {}), dict):
+                    self.send_json({'error': 'Bad request'}, 400)
+                    return
+                self.send_json(merge_library(media, body['songs'], body.get('deleted') or {}))
+                return
             if path == '/api/import':
                 try:
                     body = self.read_body()
@@ -419,11 +487,12 @@ def main():
     ap.add_argument('--root', default=os.path.dirname(HERE))
     ap.add_argument('--media', default=os.environ.get('ONGAKU_MEDIA') or os.path.join(
         os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'ongaku-renshuu-media'))
+    ap.add_argument('--lan', action='store_true', help='listen on the local network too, not only 127.0.0.1')
     a = ap.parse_args()
     for k in KINDS:
         os.makedirs(os.path.join(a.media, k), exist_ok=True)
     jobs = Jobs(a.media)
-    srv = ThreadingHTTPServer(('127.0.0.1', a.port), make_handler(os.path.abspath(a.root), a.media, jobs, a.port))
+    srv = ThreadingHTTPServer(('0.0.0.0' if a.lan else '127.0.0.1', a.port), make_handler(os.path.abspath(a.root), a.media, jobs, a.port, a.lan))
     srv.daemon_threads = True
     try:
         srv.serve_forever()
