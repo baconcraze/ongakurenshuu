@@ -10,7 +10,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="ongaku-renshuu-version" content="1.17.0">
+<meta name="ongaku-renshuu-version" content="1.18.0">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ongaku Renshuu</title>
@@ -1540,11 +1540,13 @@ function saveSong(){
   }
   if(song.video && song.video.id) data.video = {id:song.video.id, offset:+song.video.offset || 0};
   if(song.demo || !data.id) data.id = 'u' + Date.now().toString(36);
+  data.updated = Date.now();
   const i = library.findIndex(s => s.id === data.id);
   if(i >= 0) library[i] = data; else library.push(data);
   store.set('ongaku.library', library);
   loadSong(data, true);
   toast('Saved to library');
+  queueSync();
 }
 let delArmed = false, delTimer = null;
 function deleteSong(){
@@ -1553,7 +1555,9 @@ function deleteSong(){
   clearTimeout(delTimer); delArmed = false; b.textContent = 'Delete song';
   library = library.filter(s => s.id !== song.id);
   store.set('ongaku.library', library);
+  markDeleted(song.id);
   loadSong(DEMOS[0]); toast('Song deleted');
+  queueSync();
 }
 function newPianoSong(){
   loadSong({id:null, unsaved:true, kind:'notes', fmt:'abc', title:'Untitled', artist:'', bpm:90, cpb:4, tuning:null,
@@ -3145,7 +3149,9 @@ function persistVideo(){
   if(i >= 0){
     if(v) library[i].video = v; else delete library[i].video;
     library[i].bpm = song.bpm;
+    library[i].updated = Date.now();
     store.set('ongaku.library', library);
+    queueSync();
     return true;
   }
   if(song.demo){
@@ -5050,6 +5056,38 @@ $('#expGo').addEventListener('click', async () => {
   } finally { btn.disabled = false; }
 });
 
+/* ---------- Library sync ---------- */
+// While the ongaku server runs, every browser's library is merged through MEDIA/library.json (api/sync), so a song
+// saved on the computer shows up on a phone opened with ongaku --lan, and the other way round. Each song's newest
+// save wins (`updated`, ms; older songs have none and count as 0), and deletions travel as tombstones in ongaku.libDeleted.
+let libDeleted = store.get('ongaku.libDeleted', {}) || {};
+const libSync = {timer:null, busy:false, again:false, ok:null};
+function markDeleted(id){ if(!id) return; libDeleted[id] = Date.now(); store.set('ongaku.libDeleted', libDeleted); }
+function queueSync(delay){ clearTimeout(libSync.timer); libSync.timer = setTimeout(syncLibrary, delay == null ? 800 : delay); }
+async function syncLibrary(){
+  if(libSync.busy){ libSync.again = true; return; }
+  libSync.busy = true;
+  try{
+    const sent = JSON.stringify(library);
+    const r = await api('api/sync', {method:'POST', body:JSON.stringify({songs:library, deleted:libDeleted})});
+    libSync.ok = true;
+    if(JSON.stringify(library) !== sent) libSync.again = true;   // changed while we waited: send it again, keep what is here
+    else if(Array.isArray(r.songs)){
+      libDeleted = r.deleted || {}; store.set('ongaku.libDeleted', libDeleted);
+      if(JSON.stringify(r.songs) !== sent){
+        library = r.songs; store.set('ongaku.library', library);
+        if(!$('#paneLib').hidden && drawer.classList.contains('open')) renderLibrary();
+        if(song && !song.demo) $('#btnDel').hidden = !library.some(s => s.id === song.id);
+      }
+    }
+  }catch(e){ libSync.ok = false; }
+  libSync.busy = false;
+  if(libSync.again){ libSync.again = false; queueSync(0); }
+}
+// Pick up changes from other devices: on start, when the page comes back into view, and every 30 s while it is shown.
+document.addEventListener('visibilitychange', () => { if(!document.hidden) queueSync(0); });
+setInterval(() => { if(!document.hidden && libSync.ok !== false) syncLibrary(); }, 30000);
+
 /* ---------- Start ---------- */
 // Version in the header. The server reports the installed version; if this page is older, it was cached.
 const APP_VERSION = (document.querySelector('meta[name="ongaku-renshuu-version"]') || {}).content || '';
@@ -5066,6 +5104,7 @@ api('api/info').then(i => {
 updatePlayBtn();
 const startId = store.get('ongaku.current', null);
 loadSong(allSongs().find(s => s.id === startId) || DEMOS[0]);
+queueSync(0);
 requestAnimationFrame(frame);
 })();
 </script>

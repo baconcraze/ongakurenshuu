@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ongaku Renshuu launcher: serves Ongaku Renshuu on 127.0.0.1 in the background and opens it.
-# Usage: ongaku [--serve | --stop | --status | --get-soundfont | --karaoke URL [OPTIONS] | --piano URL | --setup-vocals | --setup-omr | --update-ytdlp | --help]
+# Usage: ongaku [--serve | --lan | --stop | --status | --get-soundfont | --karaoke URL [OPTIONS] | --piano URL | --setup-vocals | --setup-omr | --update-ytdlp | --help]
 set -euo pipefail
 DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PORT="${ONGAKU_PORT:-8765}"   # keep this fixed: your library is saved per address
@@ -88,6 +88,8 @@ for line in sys.stdin:
   -h|--help)
     echo "Usage: ongaku [--serve | --stop | --status]"
     echo "  --serve          start the server without opening the browser"
+    echo "  --lan            also serve on your Wi-Fi so a phone or tablet can open it (no microphone there:"
+    echo "                   browsers only allow it on https or this computer). Plain ongaku --stop ends it."
     echo "  --get-soundfont  download the GeneralUser GS instrument sounds (about 32 MB)"
     echo "  --karaoke URL    import a karaoke video, or the original song and its karaoke video is found"
     echo "                   (also works from the app). The pitch guide comes from the original song's vocals,"
@@ -101,6 +103,11 @@ for line in sys.stdin:
     echo "Starts Ongaku Renshuu at $URL and opens it in your browser."
     echo "Set ONGAKU_PORT to use a different port (your library is saved per port)."
     exit 0 ;;
+  --lan)
+    # restart the server so it also listens on the local network (for a phone or tablet on the same Wi-Fi)
+    if [[ -f $PIDFILE ]]; then kill "$(cat "$PIDFILE")" 2>/dev/null || true; rm -f "$PIDFILE"; fi
+    for _ in $(seq 30); do up || break; sleep 0.1; done
+    LAN=1 ;;
   ""|--serve) ;;
   *) echo "Unknown option: $1 (try --help)" >&2; exit 1 ;;
 esac
@@ -109,7 +116,7 @@ index_soundfonts
 if ! up; then
   command -v python3 >/dev/null || { echo "Ongaku Renshuu needs python3." >&2; exit 1; }
   if [[ -f $DIR/tools/server.py ]]; then
-    setsid python3 "$DIR/tools/server.py" --port "$PORT" --root "$DIR" --media "$MEDIA" >/dev/null 2>&1 </dev/null &
+    setsid python3 "$DIR/tools/server.py" --port "$PORT" --root "$DIR" --media "$MEDIA" ${LAN:+--lan} >/dev/null 2>&1 </dev/null &
   else
     setsid python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIR" >/dev/null 2>&1 </dev/null &
   fi
@@ -121,6 +128,14 @@ if ! up; then
   fi
 fi
 
+if [[ ${LAN:-} ]]; then
+  echo "Ongaku Renshuu is serving on your network. On your phone (same Wi-Fi), open:"
+  for ip in $(ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(virbr|docker|br-|veth)/ {split($4, a, "/"); print a[1]}'); do
+    echo "  http://$ip:$PORT/index.html"
+  done
+  echo "Anyone on this network can open it while it runs. Stop it with: ongaku --stop"
+  exit 0
+fi
 if [[ ${1:-} == --serve ]]; then
   echo "Ongaku Renshuu is serving at $URL"; exit 0
 fi

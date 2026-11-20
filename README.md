@@ -54,6 +54,18 @@ It backs up the current version (the last 3 are kept), swaps in the new files, a
 
 Ongaku Renshuu runs on http://127.0.0.1:8765. Your library is stored in the browser for that address, so if you change the port with ONGAKU_PORT, you start with an empty library.
 
+## On your phone or tablet
+
+    ongaku --lan
+
+serves Ongaku Renshuu on your home Wi-Fi as well and prints the address to open on your phone, such as http://192.168.1.20:8765/index.html. On an iPhone, open it in Safari and use Share, then Add to Home Screen. Your computer has to stay on with Ongaku Renshuu running. Anyone on the same network can open it while it runs, so use it at home, and stop it with `ongaku --stop`. Plain `ongaku` stays private to your computer, as before.
+
+Browsers only allow the microphone on https pages or on the computer itself, so singing with the karaoke score and voice practice work on the computer only. Everything else works on the phone.
+
+## Library sync
+
+While the server is running, your library is synced through your computer: songs you save, change, or delete in one browser show up in every other one that opens Ongaku Renshuu from this computer, including your phone with `ongaku --lan`. It syncs when the page opens, after each save, and every 30 seconds. When the same song was changed in two places, the newest save wins. The shared copy is kept in ~/.local/share/ongaku-renshuu-media/library.json, which also works as a backup of your songs.
+
 ## Piano and sheet music
 
 Press **Sheet music** in the bottom bar (or N) to see any guitar or bass tab as standard notation, with the cursor following along. Guitar is written an octave up with the usual "8" under the treble clef, as guitar music normally is.
